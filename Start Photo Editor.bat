@@ -15,14 +15,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "node_modules\@tauri-apps\cli-win32-x64-msvc\" (
-  echo Installing the editor's parts into this folder. The first time takes a few minutes.
-  call npm install
-  if errorlevel 1 (
-    echo npm install failed. Send Claude a screenshot of this window.
-    pause
-    exit /b 1
-  )
+echo Updating the editor's parts. The first time takes a few minutes.
+call npm install --no-audit --no-fund
+if errorlevel 1 (
+  echo npm install failed. Send Claude a screenshot of this window.
+  pause
+  exit /b 1
 )
 
 echo Starting the editor. The first start compiles the app and takes several minutes.

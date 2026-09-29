@@ -16,7 +16,7 @@ if errorlevel 1 (
 )
 
 echo Updating the editor's parts. The first time takes a few minutes.
-call npm install
+call npm install --no-audit --no-fund
 if errorlevel 1 (
   echo npm install failed. Send Claude a screenshot of this window.
   pause
