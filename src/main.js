@@ -663,7 +663,7 @@ async function exportDialog() {
             'div',
             { class: 'row' },
             h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: opts.limit, onchange: (e) => ((opts.limit = e.target.checked), draw()) }), 'Keep each file under'),
-            h('input', { class: 'field num', type: 'number', min: 0.05, step: 0.1, value: opts.maxMB, disabled: !opts.limit, style: { width: '76px' }, oninput: (e) => (opts.maxMB = Math.max(0.05, +e.target.value || 1)) }),
+            h('input', { class: 'field num', type: 'number', title: 'Largest file size in MB', min: 0.05, step: 0.1, value: opts.maxMB, disabled: !opts.limit, style: { width: '76px' }, oninput: (e) => (opts.maxMB = Math.max(0.05, +e.target.value || 1)) }),
             h('span', { class: 'muted' }, 'MB'),
           )
         : null,
@@ -685,12 +685,14 @@ async function exportDialog() {
                 'label',
                 { class: 'field-row' },
                 h('span', { class: 'label' }, 'Logo'),
-                h(
-                  'select',
-                  { class: 'field', onchange: (e) => ((wm.logoId = e.target.value), drawPreview()) },
-                  h('option', { value: '' }, logos.length ? 'No logo' : 'No logos in your brand kits'),
-                  logos.map((l) => h('option', { value: l.id, selected: wm.logoId === l.id }, l.name)),
-                ),
+                logos.length
+                  ? h(
+                      'select',
+                      { class: 'field', onchange: (e) => ((wm.logoId = e.target.value), drawPreview()) },
+                      h('option', { value: '' }, 'No logo'),
+                      logos.map((l) => h('option', { value: l.id, selected: wm.logoId === l.id }, l.name)),
+                    )
+                  : h('span', { class: 'muted small' }, 'Add a logo in the Brand tab to use it here.'),
               ),
               h(
                 'label',

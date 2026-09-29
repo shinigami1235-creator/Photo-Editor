@@ -24,6 +24,7 @@ const S = {
 };
 
 let bar = null;
+let undoBtn = null;
 let unpaint = null;
 
 export const isPaintingMask = () => !!S.on;
@@ -107,7 +108,7 @@ function showBar() {
           slider('Softness', S.soft, 0, 100, (v) => (S.soft = v)),
         ]
       : h('span', { class: 'muted small' }, 'Drag from where the layer stays to where it fades out.'),
-    h('button', { class: 'btn small', onclick: undoStep, title: 'Ctrl+Z' }, 'Undo'),
+    (undoBtn = h('button', { class: 'btn small', onclick: undoStep, title: 'Ctrl+Z', disabled: !S.undo.length }, 'Undo')),
     h('button', { class: 'btn small', onclick: () => finish(false) }, 'Cancel'),
     h('button', { class: 'btn primary small', onclick: () => finish(true) }, 'Done'),
   );
@@ -117,10 +118,12 @@ function showBar() {
 function pushUndo() {
   S.undo.push(copyOf(S.work));
   if (S.undo.length > 30) S.undo.shift();
+  if (undoBtn) undoBtn.disabled = false;
 }
 
 function undoStep() {
   const last = S.undo.pop();
+  if (undoBtn) undoBtn.disabled = !S.undo.length;
   if (!last) return;
   const x = S.work.getContext('2d');
   x.setTransform(1, 0, 0, 1, 0, 0);

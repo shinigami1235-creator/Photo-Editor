@@ -1,4 +1,4 @@
-import { canvas, fabric, selected } from './canvas.js';
+import { canvas, fabric, selected, designObjects } from './canvas.js';
 import { state, currentPage, emit, on, markDirty } from './state.js';
 import { record } from './history.js';
 import { h, section, row, numberField, rangeField, iconButton, toHex, toast } from './ui.js';
@@ -39,6 +39,7 @@ export function initProps(el, a) {
   canvas.on('object:modified', refresh);
   canvas.on('text:editing:exited', refresh);
   on('view', refresh);
+  on('objects', refresh);
   render();
 }
 
@@ -665,15 +666,20 @@ function drawTransform(o) {
 
 function drawArrange(list) {
   const o = list[0];
+  // Front and back only apply when something sits in front of or behind the selection.
+  const objs = designObjects();
+  const at = list.map((x) => objs.indexOf(x));
+  const atFront = Math.min(...at) >= objs.length - list.length;
+  const atBack = Math.max(...at) <= list.length - 1;
   host.append(
     section(
       'Arrange',
       alignRow(),
       row(
-        iconButton('front', 'Bring to front', () => arrange('front')),
-        iconButton('up', 'Bring forward', () => arrange('forward')),
-        iconButton('down', 'Send backward', () => arrange('backward')),
-        iconButton('back', 'Send to back', () => arrange('back')),
+        iconButton('front', 'Bring to front', () => arrange('front'), { disabled: atFront }),
+        iconButton('up', 'Bring forward', () => arrange('forward'), { disabled: atFront }),
+        iconButton('down', 'Send backward', () => arrange('backward'), { disabled: atBack }),
+        iconButton('back', 'Send to back', () => arrange('back'), { disabled: atBack }),
         h('span', { class: 'grow' }),
         iconButton(o.locked ? 'lock' : 'unlock', o.locked ? 'Unlock' : 'Lock', () => toggleLock(o), { on: o.locked }),
         iconButton('copy', 'Duplicate', () => duplicateSelected()),

@@ -73,7 +73,8 @@ export async function otherSizesDialog() {
     { label: 'Cancel', value: false },
     { label: 'Save designs', value: true, primary: true },
   ]);
-  if (!ok || !picked.size) return;
+  if (!ok) return;
+  if (!picked.size) return toast('Tick at least one size.');
   const dir = await pickFolder();
   if (dir == null) return;
   const note = toast('Making the other sizes', { sticky: true });
