@@ -1,0 +1,10 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+public/models/*
+!public/models/upscale-x4.onnx
+test-images
+branding/png
+branding/pngmac
+branding/render.mjs
