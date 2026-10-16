@@ -4,6 +4,7 @@ import { registerBlob, loadImage } from './assets.js';
 import { applyClip, fillFrame, isEmptyFrame, isPhoto, archPath } from './frames.js';
 import { record } from './history.js';
 import { brandFont } from './brand.js';
+import { shapePath } from './shapetools.js';
 
 const W = () => state.doc.width;
 const H = () => state.doc.height;
@@ -90,23 +91,77 @@ export function applyCurve(t) {
 
 // ---------- Shapes ----------
 
+/** Shapes drawn as a path, with settings kept so they can be redrawn. */
+export const PATH_SHAPES = {
+  star: { name: 'Star', opts: { points: 5, inner: 0.45 } },
+  burst: { name: 'Badge', opts: { points: 16, inner: 0.8 } },
+  polygon: { name: 'Polygon', opts: { sides: 6 } },
+  arrow: { name: 'Arrow', opts: { shaft: 0.4, head: 0.4 } },
+  heart: { name: 'Heart', opts: {} },
+  bubble: { name: 'Speech bubble', opts: {} },
+  cross: { name: 'Plus', opts: { thick: 0.34 } },
+};
+
+export const SHAPE_NAMES = {
+  rect: 'Rectangle',
+  rounded: 'Rounded rectangle',
+  ellipse: 'Circle',
+  triangle: 'Triangle',
+  line: 'Line',
+  ...Object.fromEntries(Object.entries(PATH_SHAPES).map(([k, v]) => [k, v.name])),
+};
+
+const fg = () => state.fg || '#14497a';
+
+function shapeObject(kind, w, h, opts) {
+  const common = { fill: fg(), stroke: null, strokeWidth: 0, strokeUniform: true };
+  if (kind === 'rect') return new fabric.Rect({ ...base('Rectangle'), ...common, width: w, height: h });
+  if (kind === 'rounded') return new fabric.Rect({ ...base('Rounded rectangle'), ...common, width: w, height: h, rx: Math.min(w, h) * 0.12, ry: Math.min(w, h) * 0.12 });
+  if (kind === 'ellipse') return new fabric.Ellipse({ ...base('Circle'), ...common, rx: w / 2, ry: h / 2 });
+  if (kind === 'triangle') return new fabric.Triangle({ ...base('Triangle'), ...common, width: w, height: h });
+  if (PATH_SHAPES[kind]) {
+    const o = { ...PATH_SHAPES[kind].opts, ...(opts || {}) };
+    return new fabric.Path(shapePath(kind, w, h, o), { ...base(PATH_SHAPES[kind].name), ...common, shapeKind: kind, shapeOpts: o });
+  }
+  return null;
+}
+
 export function addShape(kind, at) {
   const s = Math.min(W(), H()) * 0.35;
-  const common = { fill: '#14497a', stroke: null, strokeWidth: 0, strokeUniform: true };
-  let obj;
-  if (kind === 'rect') obj = new fabric.Rect({ ...base('Rectangle'), ...common, width: s, height: s });
-  else if (kind === 'rounded') obj = new fabric.Rect({ ...base('Rounded rectangle'), ...common, width: s, height: s, rx: s * 0.12, ry: s * 0.12 });
-  else if (kind === 'ellipse') obj = new fabric.Ellipse({ ...base('Circle'), ...common, rx: s / 2, ry: s / 2 });
-  else if (kind === 'triangle') obj = new fabric.Triangle({ ...base('Triangle'), ...common, width: s, height: s * 0.87 });
-  else if (kind === 'line')
-    obj = new fabric.Line([0, 0, s * 1.4, 0], { ...base('Line'), stroke: '#111111', strokeWidth: Math.max(2, Math.round(s / 40)), strokeUniform: true, fill: null });
-  return place(obj, { at });
+  if (kind === 'line')
+    return place(new fabric.Line([0, 0, s * 1.4, 0], { ...base('Line'), stroke: fg(), strokeWidth: Math.max(2, Math.round(s / 40)), strokeUniform: true, fill: null }), { at });
+  const hh = kind === 'triangle' ? s * 0.87 : kind === 'arrow' ? s * 0.6 : kind === 'bubble' ? s * 0.85 : s;
+  return place(shapeObject(kind, kind === 'arrow' ? s * 1.3 : s, hh), { at });
+}
+
+/** Adds a shape filling a box dragged on the page: { x, y, w, h } or a line from a to b. */
+export function addShapeBox(kind, r, a, b) {
+  if (kind === 'line') {
+    const l = new fabric.Line([a.x, a.y, b.x, b.y], { ...base('Line'), stroke: fg(), strokeWidth: Math.max(2, Math.round(Math.min(W(), H()) / 300)), strokeUniform: true, fill: null });
+    decorate(l);
+    canvas.add(l);
+    canvas.setActiveObject(l);
+    canvas.requestRenderAll();
+    return l;
+  }
+  return place(shapeObject(kind, Math.max(2, r.w), Math.max(2, r.h)), { at: new fabric.Point(r.x + r.w / 2, r.y + r.h / 2) });
+}
+
+/** Redraws a path shape (star, badge, polygon...) with new settings, keeping its place. */
+export function reshape(o, patch) {
+  if (!o.shapeKind || !PATH_SHAPES[o.shapeKind]) return;
+  const opts = { ...o.shapeOpts, ...patch };
+  const c = o.getCenterPoint();
+  const fresh = new fabric.Path(shapePath(o.shapeKind, o.width, o.height, opts));
+  o.set({ path: fresh.path, pathOffset: fresh.pathOffset, width: fresh.width, height: fresh.height, shapeOpts: opts, dirty: true });
+  o.setPositionByOrigin(c, 'center', 'center');
+  o.setCoords();
+  canvas.requestRenderAll();
 }
 
 // ---------- Frames ----------
 
-export function addFrame(kind, at) {
-  const s = Math.min(W(), H()) * 0.45;
+function frameObject(kind, w, h) {
   const common = {
     ...base('Frame'),
     isFrame: true,
@@ -116,12 +171,20 @@ export function addFrame(kind, at) {
     strokeDashArray: [10, 8],
     strokeUniform: true,
   };
-  let obj;
-  if (kind === 'ellipse') obj = new fabric.Ellipse({ ...common, rx: s / 2, ry: s / 2 });
-  else if (kind === 'rounded') obj = new fabric.Rect({ ...common, width: s, height: s * 1.25, rx: s * 0.08, ry: s * 0.08 });
-  else if (kind === 'arch') obj = new fabric.Path(archPath(s, s * 1.3), { ...common, frameKind: 'arch' });
-  else obj = new fabric.Rect({ ...common, width: s, height: s * 1.25 });
-  return place(obj, { at });
+  if (kind === 'ellipse') return new fabric.Ellipse({ ...common, rx: w / 2, ry: h / 2 });
+  if (kind === 'rounded') return new fabric.Rect({ ...common, width: w, height: h, rx: Math.min(w, h) * 0.08, ry: Math.min(w, h) * 0.08 });
+  if (kind === 'arch') return new fabric.Path(archPath(w, h), { ...common, frameKind: 'arch' });
+  return new fabric.Rect({ ...common, width: w, height: h });
+}
+
+export function addFrame(kind, at) {
+  const s = Math.min(W(), H()) * 0.45;
+  return place(frameObject(kind, s, kind === 'ellipse' ? s : kind === 'arch' ? s * 1.3 : s * 1.25), { at });
+}
+
+/** Adds a frame filling a box dragged on the page. */
+export function addFrameBox(kind, r) {
+  return place(frameObject(kind, Math.max(8, r.w), Math.max(8, r.h)), { at: new fabric.Point(r.x + r.w / 2, r.y + r.h / 2) });
 }
 
 // ---------- Photos ----------

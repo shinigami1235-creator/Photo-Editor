@@ -4,7 +4,8 @@ import { record } from './history.js';
 import { h, ICONS } from './ui.js';
 import { toggleLock, selectObjects, duplicateSelected, removeSelected, groupSelected } from './objects.js';
 import { isPhoto, isEmptyFrame } from './frames.js';
-import { BLEND_MODES, hasFx } from './layerfx.js';
+import { BLEND_MODES, hasStyle } from './layerfx.js';
+import { showPanel } from './dock.js';
 import {
   isSelecting,
   selectionTarget,
@@ -37,7 +38,7 @@ export function initLayers(el) {
 }
 
 const icon = (o) =>
-  isEmptyFrame(o) ? 'frames' : isPhoto(o) ? 'image' : { textbox: 'text', rect: 'rect', ellipse: 'circle', triangle: 'triangle', line: 'line', group: 'group' }[o.type] || 'shapes';
+  o.isAdjustment ? 'adjustLayer' : isEmptyFrame(o) ? 'frames' : isPhoto(o) ? 'image' : { textbox: 'text', rect: 'rect', ellipse: 'circle', triangle: 'triangle', line: 'line', group: 'group' }[o.type] || 'shapes';
 
 const label = (o) => {
   if (o.type === 'textbox') return o.text.split('\n')[0].slice(0, 40) || 'Text';
@@ -171,7 +172,7 @@ function draw() {
             'mask',
           )
         : null,
-      hasFx(o) && (o.outlineWidth > 0 || o.glowSize > 0 || (o.warp && o.warpBend)) ? h('span', { class: 'layer-chip', title: 'Has effects' }, 'fx') : null,
+      o.shadow || o.outlineWidth > 0 || o.glowSize > 0 || (o.warp && o.warpBend) || hasStyle(o) || o.corners ? h('button', { class: 'layer-chip', title: 'Layer style. Click to see it in Properties', onclick: (e) => (e.stopPropagation(), selectObjects([o]), showPanel('properties')) }, 'fx') : null,
       h('button', {
         class: 'icon-btn tiny' + (o.locked ? ' on' : ''),
         title: o.locked ? 'Unlock' : 'Lock',

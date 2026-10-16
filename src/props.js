@@ -1,20 +1,22 @@
 import { canvas, fabric, selected, designObjects } from './canvas.js';
 import { state, currentPage, emit, on, markDirty } from './state.js';
+import { runCommand } from './commands.js';
 import { record } from './history.js';
 import { h, section, row, numberField, rangeField, iconButton, toHex, toast } from './ui.js';
 import { fontPicker, ensureFont } from './fonts.js';
 import { brandColors } from './brand.js';
-import { toggleLock, arrange, flip, duplicateSelected, removeSelected, groupSelected, ungroupSelected, dropPhoto, addText } from './objects.js';
+import { toggleLock, arrange, flip, duplicateSelected, removeSelected, groupSelected, ungroupSelected, dropPhoto, addText, reshape } from './objects.js';
 import { align, distribute } from './guides.js';
 import { enterCrop, exitCrop, inCrop, isPhoto, isEmptyFrame, setPhotoShape } from './frames.js';
 import { restoreBackground } from './bgremove.js';
 import { openCutout } from './refine.js';
-import { drawAdjust } from './adjustpanel.js';
+import { drawDevelop, photoTarget } from './adjustpanel.js';
 import { applyCurve } from './objects.js';
 import { pickFiles } from './platform.js';
+import { PATTERNS, patternTile, makePattern } from './patterns.js';
 import { registerBytes, typeFor } from './assets.js';
 import { BLEND_MODES, WARPS, clipBaseOf } from './layerfx.js';
-import { toggleLayerMask, invertLayerMask, removeLayerMask, selectFromLayer, textBehindSubject } from './selection.js';
+import { toggleLayerMask, invertLayerMask, removeLayerMask, selectFromLayer, textBehindSubject, isSelecting } from './selection.js';
 import { startMaskPaint } from './maskpaint.js';
 import { pickColor } from './eyedropper.js';
 import { saveTextStyle } from './textstyles.js';
@@ -23,6 +25,7 @@ import { styleIcon } from './icons.js';
 import { viewSettings, toggleRulers, toggleSafeZone, clearGuides } from './rulers.js';
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
+import { drawAdjustmentProps } from './adjustlayers.js';
 
 // The right-hand panel: settings for whatever is selected, or the page.
 
@@ -123,13 +126,14 @@ function colorField(label, value, onChange, { allowNone = false } = {}) {
   );
 }
 
-/** Fill as a solid colour or a linear or radial gradient between two colours. */
+/** Fill as a solid colour, a linear or radial gradient between two colours, or a pattern. */
 function fillField(label, targets, { allowNone = false } = {}) {
   const o = targets[0];
   const g = o.fill && typeof o.fill === 'object' && o.fill.colorStops ? o.fill : null;
-  const kind = g ? g.type : 'solid';
+  const pat = o.patternFill && o.fill && typeof o.fill === 'object' && !o.fill.colorStops ? o.patternFill : null;
+  const kind = pat ? 'pattern' : g ? g.type : 'solid';
   const stops = g ? [...g.colorStops].sort((a, b) => a.offset - b.offset) : null;
-  const a = g ? toHex(stops[0].color) : toHex(o.fill || '#14497a');
+  const a = g ? toHex(stops[0].color) : toHex(typeof o.fill === 'string' ? o.fill : '#14497a');
   const b = g ? toHex(stops[stops.length - 1].color) : '#ffffff';
   const angle = g && g.type === 'linear' ? Math.round((Math.atan2(g.coords.y2 - g.coords.y1, g.coords.x2 - g.coords.x1) * 180) / Math.PI) : 90;
   const make = (k, c1, c2, ang) => {
@@ -148,8 +152,14 @@ function fillField(label, targets, { allowNone = false } = {}) {
       colorStops,
     });
   };
-  const state = { kind, a, b, angle };
-  const commit = (c) => set(targets, { fill: make(state.kind, state.a, state.b, state.angle) }, c);
+  const st = { kind, a, b, angle };
+  const commit = (c) => set(targets, { fill: make(st.kind, st.a, st.b, st.angle), patternFill: null }, c);
+  const P = { kind: 'dots', color: a, bg: '#ffffff', size: 40, url: null, ...(pat || {}) };
+  const applyPattern = async (commitNow) => {
+    const fill = await makePattern(P);
+    if (!fill) return;
+    set(targets, { fill, patternFill: { ...P } }, commitNow);
+  };
   const seg = h(
     'div',
     { class: 'seg small' },
@@ -157,36 +167,78 @@ function fillField(label, targets, { allowNone = false } = {}) {
       ['solid', 'Solid'],
       ['linear', 'Linear'],
       ['radial', 'Radial'],
+      ['pattern', 'Pattern'],
     ].map(([v, text]) =>
       h('button', {
         class: kind === v ? 'on' : '',
-        onclick: () => {
-          state.kind = v;
-          commit(true);
+        onclick: async () => {
+          if (v === 'pattern') await applyPattern(true);
+          else {
+            st.kind = v;
+            commit(true);
+          }
           render();
         },
       }, text),
     ),
   );
   const kids = [h('div', { class: 'row' }, h('span', { class: 'label grow' }, label), seg)];
-  if (kind === 'solid') kids.push(colorField('Colour', o.fill, (c, cm) => set(targets, { fill: c }, cm), { allowNone }));
-  else {
+  if (kind === 'solid') kids.push(colorField('Colour', o.fill, (c, cm) => set(targets, { fill: c, patternFill: null }, cm), { allowNone }));
+  else if (kind === 'pattern') {
     kids.push(
-      colorField('From', a, (c, cm) => ((state.a = c), commit(cm))),
-      colorField('To', b, (c, cm) => ((state.b = c), commit(cm))),
+      h(
+        'div',
+        { class: 'pattern-grid' },
+        PATTERNS.map(([k, name]) => {
+          const tile = k === 'photo' ? null : patternTile(k, P.color, P.bg, 18).toDataURL();
+          return h(
+            'button',
+            {
+              class: 'pattern-tile' + (P.kind === k ? ' on' : ''),
+              title: name,
+              style: tile ? { backgroundImage: `url(${tile})` } : null,
+              onclick: async () => {
+                if (k === 'photo') {
+                  const files = await pickFiles({ extensions: ['png', 'jpg', 'jpeg', 'webp'], label: 'Images' });
+                  if (!files?.length) return;
+                  P.url = registerBytes(files[0].bytes, typeFor(files[0].name));
+                  P.size = Math.max(P.size, 160);
+                }
+                P.kind = k;
+                await applyPattern(true);
+                render();
+              },
+            },
+            k === 'photo' ? h('span', { html: iconSvg('photos') }) : null,
+          );
+        }),
+      ),
     );
-    if (kind === 'linear') kids.push(rangeField('Angle', angle, (v, cm) => ((state.angle = v), commit(cm)), { min: -180, max: 180, suffix: '°' }));
+    if (P.kind !== 'photo') {
+      kids.push(
+        colorField('Colour', P.color, (c, cm) => ((P.color = c), cm && applyPattern(true).then(render))),
+        colorField('Behind', P.bg, (c, cm) => ((P.bg = c), cm && applyPattern(true).then(render)), { allowNone: true }),
+      );
+    }
+    kids.push(rangeField('Size', P.size, (v, c) => ((P.size = v), c && applyPattern(true)), { min: 6, max: P.kind === 'photo' ? 1200 : 300, suffix: ' px' }));
+  } else {
+    kids.push(
+      colorField('From', a, (c, cm) => ((st.a = c), commit(cm))),
+      colorField('To', b, (c, cm) => ((st.b = c), commit(cm))),
+    );
+    if (kind === 'linear') kids.push(rangeField('Angle', angle, (v, c) => ((st.angle = v), commit(c)), { min: -180, max: 180, suffix: '°' }));
   }
   return h('div', { class: 'stack gap' }, ...kids);
 }
 
 const typeName = (o) =>
-  isEmptyFrame(o) ? 'Frame' : isPhoto(o) ? 'Photo' : { textbox: 'Text', rect: 'Rectangle', ellipse: 'Circle', triangle: 'Triangle', line: 'Line', group: 'Group', activeselection: 'Selection' }[o.type] || 'Object';
+  o.shapeKind ? 'Shape' : isEmptyFrame(o) ? 'Frame' : isPhoto(o) ? 'Photo' : { textbox: 'Text', rect: 'Rectangle', ellipse: 'Circle', triangle: 'Triangle', line: 'Line', group: 'Group', activeselection: 'Selection' }[o.type] || 'Object';
 
 function draw() {
   if (!host || !state.doc) return;
   host.innerHTML = '';
   const list = selected();
+  if (isSelecting() && actions.selectionPanel) return actions.selectionPanel(host);
   if (inCrop()) {
     host.append(
       section('Crop', h('p', { class: 'muted' }, 'Drag the photo to move it inside the frame and pull a corner to zoom. Press Enter when done.'), h('button', { class: 'btn primary wide', onclick: exitCrop }, 'Done')),
@@ -196,6 +248,7 @@ function draw() {
   if (!list.length) return drawPage();
   if (list.length > 1) return drawMulti(list);
   const o = list[0];
+  if (o.isAdjustment) return drawAdjustmentProps(host, o, render);
   host.append(h('div', { class: 'props-head' }, h('span', { class: 'props-type' }, typeName(o)), h('span', { class: 'props-name' }, o.name || '')));
   if (o.type === 'textbox') {
     drawText(o);
@@ -317,6 +370,18 @@ function drawShape(o) {
     colorField('Border', o.stroke, (c, commit) => set(t, { stroke: c, strokeWidth: c ? o.strokeWidth || 4 : 0 }, commit), { allowNone: true }),
     rangeField('Border width', o.strokeWidth || 0, (v, c) => set(t, { strokeWidth: v, stroke: v ? o.stroke || '#111111' : null }, c), { min: 0, max: 60 }),
   ];
+  if (o.shapeKind) {
+    const op = o.shapeOpts || {};
+    const re = (patch, c) => {
+      reshape(o, patch);
+      if (c) record();
+    };
+    if ('points' in op) kids.push(rangeField('Points', op.points, (v, c) => re({ points: v }, c), { min: 3, max: o.shapeKind === 'burst' ? 48 : 24 }));
+    if ('inner' in op) kids.push(rangeField('Depth', Math.round((1 - op.inner) * 100), (v, c) => re({ inner: 1 - v / 100 }, c), { min: 5, max: 90, suffix: '%' }));
+    if ('sides' in op) kids.push(rangeField('Sides', op.sides, (v, c) => re({ sides: v }, c), { min: 3, max: 16 }));
+    if ('shaft' in op) kids.push(rangeField('Shaft', Math.round(op.shaft * 100), (v, c) => re({ shaft: v / 100 }, c), { min: 10, max: 90, suffix: '%' }), rangeField('Head', Math.round(op.head * 100), (v, c) => re({ head: v / 100 }, c), { min: 10, max: 90, suffix: '%' }));
+    if ('thick' in op) kids.push(rangeField('Thickness', Math.round(op.thick * 100), (v, c) => re({ thick: v / 100 }, c), { min: 5, max: 90, suffix: '%' }));
+  }
   if (o.type === 'rect') {
     const maxR = Math.min(o.width, o.height) / 2;
     kids.push(rangeField('Corner radius', o.rx || 0, (v, c) => set(t, { rx: v, ry: v }, c), { min: 0, max: Math.round(maxR) }));
@@ -410,7 +475,7 @@ function drawPhoto(o) {
       upscaleRow(o),
     ),
   );
-  drawAdjust(host, o, render);
+  drawDevelop(host, photoTarget(o), render);
 }
 
 function upscaleRow(o) {
@@ -426,7 +491,19 @@ function upscaleRow(o) {
       h('button', { class: 'btn grow', disabled: max < 4, title: `${w * 4} × ${hh * 4} px`, onclick: () => upscalePhoto(o, 4).then(render) }, 'Upscale 4×'),
     ),
     h('p', { class: 'muted small' }, `This photo is ${w} × ${hh} px.`),
+    sharpness(o),
   );
+}
+
+/** A warning when a photo is shown bigger than its own pixels. */
+function sharpness(o) {
+  const s = Math.abs(o.scaleX);
+  const dpi = state.doc.dpi || 72;
+  if (dpi >= 150) {
+    const ppi = Math.round(dpi / Math.max(0.01, s));
+    return ppi < 150 ? h('p', { class: 'warn small' }, `Prints at ${ppi} ppi. Print needs about 300, so upscale it or use a bigger photo.`) : null;
+  }
+  return s > 1.3 ? h('p', { class: 'warn small' }, `Shown at ${Math.round(s * 100)}% of its size, so it may look soft. Upscale 2× sharpens it.`) : null;
 }
 
 // ---------- QR codes and icons ----------
@@ -487,75 +564,96 @@ function drawEffects(o) {
     const base = sh ? { color: sh.color, blur: sh.blur, offsetX: sh.offsetX, offsetY: sh.offsetY } : { color: 'rgba(0,0,0,0.35)', blur: 20, offsetX: 6, offsetY: 8 };
     set(t, { shadow: new fabric.Shadow({ ...base, ...patch }) }, commit);
   };
-  const kids = [
-    rangeField('Opacity', Math.round((o.opacity ?? 1) * 100), (v, c) => set(t, { opacity: v / 100 }, c), { min: 0, max: 100, suffix: '%' }),
-    h(
-      'label',
-      { class: 'check' },
-      h('input', {
-        type: 'checkbox',
-        checked: !!sh,
-        onchange: (e) => {
-          if (e.target.checked) setShadow({}, true);
-          else set(t, { shadow: null }, true);
-          render();
-        },
-      }),
-      'Shadow',
-    ),
-  ];
-  if (sh) {
-    kids.push(
-      colorField('Shadow colour', toHex(sh.color), (c, commit) => setShadow({ color: withAlpha(c, alphaOf(sh.color)) }, commit)),
-      rangeField('Shadow opacity', Math.round(alphaOf(sh.color) * 100), (v, c) => setShadow({ color: withAlpha(toHex(sh.color), v / 100) }, c), { min: 0, max: 100, suffix: '%' }),
-      rangeField('Blur', sh.blur, (v, c) => setShadow({ blur: v }, c), { min: 0, max: 120 }),
-      row(numberField('Offset X', sh.offsetX, (v, c) => setShadow({ offsetX: v }, c)), numberField('Offset Y', sh.offsetY, (v, c) => setShadow({ offsetY: v }, c))),
-    );
-  }
-  kids.push(
-    h(
-      'label',
-      { class: 'field-row' },
-      h('span', { class: 'label' }, 'Blend'),
+  host.append(
+    section(
+      'Layer',
+      rangeField('Opacity', Math.round((o.opacity ?? 1) * 100), (v, c) => set(t, { opacity: v / 100 }, c), { min: 0, max: 100, suffix: '%' }),
       h(
-        'select',
-        { class: 'field', onchange: (e) => set(t, { globalCompositeOperation: e.target.value }, true) },
-        BLEND_MODES.map(([v, name]) => h('option', { value: v, selected: (o.globalCompositeOperation || 'source-over') === v }, name)),
+        'label',
+        { class: 'field-row' },
+        h('span', { class: 'label' }, 'Blend'),
+        h(
+          'select',
+          { class: 'field', onchange: (e) => set(t, { globalCompositeOperation: e.target.value }, true) },
+          BLEND_MODES.map(([v, name]) => h('option', { value: v, selected: (o.globalCompositeOperation || 'source-over') === v }, name)),
+        ),
       ),
     ),
   );
 
-  // Outline and glow follow the layer's visible shape, so they suit cut-outs and text.
-  const toggle = (label, onNow, turnOn, turnOff) =>
-    h(
-      'label',
-      { class: 'check' },
-      h('input', {
-        type: 'checkbox',
-        checked: onNow,
-        onchange: (e) => {
-          set(t, e.target.checked ? turnOn : turnOff, true);
-          render();
-        },
-      }),
-      label,
-    );
-  kids.push(toggle('Outline', o.outlineWidth > 0, { outlineWidth: 8, outlineColor: o.outlineColor || '#ffffff' }, { outlineWidth: 0 }));
-  if (o.outlineWidth > 0) {
+  // Layer styles, in Photoshop's order. Each one opens its settings when ticked.
+  const kids = [];
+  const style = (label, onNow, turnOn, turnOff, build) => {
     kids.push(
-      colorField('Outline colour', o.outlineColor || '#ffffff', (c, commit) => set(t, { outlineColor: c }, commit)),
-      rangeField('Outline width', o.outlineWidth, (v, c) => set(t, { outlineWidth: Math.max(1, v) }, c), { min: 1, max: 80 }),
+      h(
+        'label',
+        { class: 'check style-check' },
+        h('input', {
+          type: 'checkbox',
+          checked: onNow,
+          onchange: (e) => {
+            if (e.target.checked) turnOn();
+            else turnOff();
+            render();
+          },
+        }),
+        label,
+      ),
     );
-  }
-  kids.push(toggle('Glow', o.glowSize > 0, { glowSize: 24, glowColor: o.glowColor || '#ffd76a', glowStrength: o.glowStrength ?? 60 }, { glowSize: 0 }));
-  if (o.glowSize > 0) {
-    kids.push(
-      colorField('Glow colour', o.glowColor || '#ffd76a', (c, commit) => set(t, { glowColor: c }, commit)),
-      rangeField('Glow size', o.glowSize, (v, c) => set(t, { glowSize: Math.max(1, v) }, c), { min: 1, max: 150 }),
-      rangeField('Glow strength', o.glowStrength ?? 60, (v, c) => set(t, { glowStrength: v }, c), { min: 1, max: 100, suffix: '%' }),
-    );
-  }
-  host.append(section('Effects', ...kids));
+    if (onNow) kids.push(h('div', { class: 'style-body stack gap' }, build()));
+  };
+  const obj = (key, patch, commit) => set(t, { [key]: { ...o[key], ...patch } }, commit);
+  const STYLE_DEFAULTS = {
+    innerShadow: { color: '#000000', opacity: 50, blur: 12, x: 4, y: 6 },
+    innerGlow: { color: '#fff3c4', size: 16, opacity: 75 },
+    bevel: { size: 10, depth: 60, angle: 135 },
+    colorOverlay: { color: state.fg || '#e0b45a', opacity: 100 },
+    gradientOverlay: { from: '#e0b45a', to: '#14497a', angle: 90, opacity: 100 },
+  };
+  const toggleObj = (key) => [() => set(t, { [key]: { ...STYLE_DEFAULTS[key] } }, true), () => set(t, { [key]: null }, true)];
+
+  style('Drop shadow', !!sh, () => setShadow({}, true), () => set(t, { shadow: null }, true), () => [
+    colorField('Colour', toHex(sh.color), (c, commit) => setShadow({ color: withAlpha(c, alphaOf(sh.color)) }, commit)),
+    rangeField('Opacity', Math.round(alphaOf(sh.color) * 100), (v, c) => setShadow({ color: withAlpha(toHex(sh.color), v / 100) }, c), { min: 0, max: 100, suffix: '%' }),
+    rangeField('Blur', sh.blur, (v, c) => setShadow({ blur: v }, c), { min: 0, max: 120 }),
+    row(numberField('X', sh.offsetX, (v, c) => setShadow({ offsetX: v }, c)), numberField('Y', sh.offsetY, (v, c) => setShadow({ offsetY: v }, c))),
+  ]);
+  style('Stroke', o.outlineWidth > 0, () => set(t, { outlineWidth: 8, outlineColor: o.outlineColor || '#ffffff' }, true), () => set(t, { outlineWidth: 0 }, true), () => [
+    colorField('Colour', o.outlineColor || '#ffffff', (c, commit) => set(t, { outlineColor: c }, commit)),
+    rangeField('Width', o.outlineWidth, (v, c) => set(t, { outlineWidth: Math.max(1, v) }, c), { min: 1, max: 80 }),
+  ]);
+  style('Outer glow', o.glowSize > 0, () => set(t, { glowSize: 24, glowColor: o.glowColor || '#ffd76a', glowStrength: o.glowStrength ?? 60 }, true), () => set(t, { glowSize: 0 }, true), () => [
+    colorField('Colour', o.glowColor || '#ffd76a', (c, commit) => set(t, { glowColor: c }, commit)),
+    rangeField('Size', o.glowSize, (v, c) => set(t, { glowSize: Math.max(1, v) }, c), { min: 1, max: 150 }),
+    rangeField('Strength', o.glowStrength ?? 60, (v, c) => set(t, { glowStrength: v }, c), { min: 1, max: 100, suffix: '%' }),
+  ]);
+  style('Inner shadow', !!o.innerShadow, ...toggleObj('innerShadow'), () => [
+    colorField('Colour', o.innerShadow.color, (c, commit) => obj('innerShadow', { color: c }, commit)),
+    rangeField('Opacity', o.innerShadow.opacity, (v, c) => obj('innerShadow', { opacity: v }, c), { min: 0, max: 100, suffix: '%' }),
+    rangeField('Blur', o.innerShadow.blur, (v, c) => obj('innerShadow', { blur: v }, c), { min: 0, max: 100 }),
+    row(numberField('X', o.innerShadow.x, (v, c) => obj('innerShadow', { x: v }, c)), numberField('Y', o.innerShadow.y, (v, c) => obj('innerShadow', { y: v }, c))),
+  ]);
+  style('Inner glow', !!o.innerGlow, ...toggleObj('innerGlow'), () => [
+    colorField('Colour', o.innerGlow.color, (c, commit) => obj('innerGlow', { color: c }, commit)),
+    rangeField('Size', o.innerGlow.size, (v, c) => obj('innerGlow', { size: v }, c), { min: 1, max: 120 }),
+    rangeField('Opacity', o.innerGlow.opacity, (v, c) => obj('innerGlow', { opacity: v }, c), { min: 0, max: 100, suffix: '%' }),
+  ]);
+  style('Bevel', !!o.bevel, ...toggleObj('bevel'), () => [
+    rangeField('Size', o.bevel.size, (v, c) => obj('bevel', { size: v }, c), { min: 1, max: 60 }),
+    rangeField('Depth', o.bevel.depth, (v, c) => obj('bevel', { depth: v }, c), { min: 0, max: 100, suffix: '%' }),
+    rangeField('Light from', o.bevel.angle, (v, c) => obj('bevel', { angle: v }, c), { min: 0, max: 360, suffix: '°' }),
+  ]);
+  style('Colour overlay', !!o.colorOverlay, ...toggleObj('colorOverlay'), () => [
+    colorField('Colour', o.colorOverlay.color, (c, commit) => obj('colorOverlay', { color: c }, commit)),
+    rangeField('Opacity', o.colorOverlay.opacity, (v, c) => obj('colorOverlay', { opacity: v }, c), { min: 0, max: 100, suffix: '%' }),
+  ]);
+  style('Gradient overlay', !!o.gradientOverlay, ...toggleObj('gradientOverlay'), () => [
+    colorField('From', o.gradientOverlay.from, (c, commit) => obj('gradientOverlay', { from: c }, commit)),
+    colorField('To', o.gradientOverlay.to, (c, commit) => obj('gradientOverlay', { to: c }, commit)),
+    rangeField('Angle', o.gradientOverlay.angle, (v, c) => obj('gradientOverlay', { angle: v }, c), { min: -180, max: 180, suffix: '°' }),
+    rangeField('Opacity', o.gradientOverlay.opacity, (v, c) => obj('gradientOverlay', { opacity: v }, c), { min: 0, max: 100, suffix: '%' }),
+  ]);
+  host.append(section('Layer style', ...kids));
 
   // Warp bends the whole layer: text, photo or shape.
   const warp = [
@@ -600,6 +698,7 @@ function drawEffects(o) {
     row(
       h('button', { class: 'btn', title: 'Hide or bring back parts of this layer with a soft brush', onclick: () => startMaskPaint(o, 'brush') }, 'Paint mask'),
       h('button', { class: 'btn', title: 'Drag across the layer to fade it out', onclick: () => startMaskPaint(o, 'fade') }, 'Fade out'),
+      h('button', { class: 'btn', title: 'Drag out a circle: inside stays, outside fades', onclick: () => startMaskPaint(o, 'radial') }, 'Radial'),
     ),
   );
   if (o.layerMask) {
@@ -660,6 +759,12 @@ function drawTransform(o) {
         iconButton('flipH', 'Flip horizontal', () => flip('x')),
         iconButton('flipV', 'Flip vertical', () => flip('y')),
       ),
+      row(
+        h('button', { class: 'btn small grow', title: 'Drag the four corners', onclick: () => runCommand('edit.distort') }, 'Distort'),
+        h('button', { class: 'btn small grow', onclick: () => runCommand('edit.perspective') }, 'Perspective'),
+        h('button', { class: 'btn small grow', onclick: () => runCommand('edit.skew') }, 'Skew'),
+      ),
+      o.corners ? h('button', { class: 'link', onclick: () => runCommand('edit.resetTransform') }, 'Straighten corners') : null,
     ),
   );
 }
@@ -671,6 +776,19 @@ function drawArrange(list) {
   const at = list.map((x) => objs.indexOf(x));
   const atFront = Math.min(...at) >= objs.length - list.length;
   const atBack = Math.max(...at) <= list.length - 1;
+  const pin = o.pin || {};
+  const setPin = (patch) => {
+    const next = { ...pin, ...patch };
+    if (next.h === 'auto') delete next.h;
+    if (next.v === 'auto') delete next.v;
+    set([o], { pin: Object.keys(next).length ? next : null }, true);
+  };
+  const pinSelect = (title, key, items) =>
+    h(
+      'select',
+      { class: 'field', title, onchange: (e) => setPin({ [key]: e.target.value }) },
+      items.map(([v, label]) => h('option', { value: v, selected: (pin[key] || 'auto') === v }, label)),
+    );
   host.append(
     section(
       'Arrange',
@@ -684,6 +802,23 @@ function drawArrange(list) {
         iconButton(o.locked ? 'lock' : 'unlock', o.locked ? 'Unlock' : 'Lock', () => toggleLock(o), { on: o.locked }),
         iconButton('copy', 'Duplicate', () => duplicateSelected()),
         iconButton('trash', 'Delete', removeSelected),
+      ),
+      h('div', { class: 'label', title: 'Used by Make other sizes' }, 'In other sizes, stick to'),
+      row(
+        pinSelect('Across', 'h', [
+          ['auto', 'Nearest side'],
+          ['left', 'Left'],
+          ['center', 'Centre'],
+          ['right', 'Right'],
+          ['stretch', 'Stretch'],
+        ]),
+        pinSelect('Down', 'v', [
+          ['auto', 'Nearest side'],
+          ['top', 'Top'],
+          ['middle', 'Middle'],
+          ['bottom', 'Bottom'],
+          ['stretch', 'Stretch'],
+        ]),
       ),
     ),
   );

@@ -6,7 +6,7 @@ import { loadImage } from './assets.js';
 // scratch canvas first, then put on the page with its opacity, blend mode and
 // shadow. Everything else renders the normal Fabric way.
 
-export const FX_PROPS = ['layerMask', 'maskOn', 'clipBelow', 'warp', 'warpBend', 'outlineColor', 'outlineWidth', 'glowColor', 'glowSize', 'glowStrength'];
+export const FX_PROPS = ['layerMask', 'maskOn', 'clipBelow', 'warp', 'warpBend', 'outlineColor', 'outlineWidth', 'glowColor', 'glowSize', 'glowStrength', 'innerShadow', 'innerGlow', 'bevel', 'colorOverlay', 'gradientOverlay', 'corners'];
 
 export const BLEND_MODES = [
   ['source-over', 'Normal'],
@@ -38,11 +38,17 @@ export const WARPS = [
 ];
 
 const maskOn = (o) => !!o.layerMask && o.maskOn !== false;
-export const hasFx = (o) => !!(maskOn(o) || o.clipBelow || (o.warp && o.warpBend) || o.outlineWidth > 0 || o.glowSize > 0);
+export const hasStyle = (o) => !!(o.innerShadow || o.innerGlow || o.bevel || o.colorOverlay || o.gradientOverlay);
+export const hasCorners = (o) => Array.isArray(o.corners) && o.corners.length === 8;
+export const hasFx = (o) => !!(maskOn(o) || o.clipBelow || (o.warp && o.warpBend) || o.outlineWidth > 0 || o.glowSize > 0 || hasStyle(o) || hasCorners(o));
 
 // ---------- Mask pictures ----------
 
 const masks = new Map(); // url -> canvas or image, or 'loading'
+
+/** Goes up whenever something loads that changes how layers draw, so cached adjustment layers redraw. */
+export let renderRev = 0;
+export const bumpRender = () => renderRev++;
 
 /** Keeps a freshly made mask canvas so it draws without waiting for the file. */
 export const cacheMask = (url, drawable) => masks.set(url, drawable);
@@ -55,6 +61,7 @@ function maskFor(o) {
     loadImage(o.layerMask)
       .then((img) => {
         masks.set(o.layerMask, img);
+        bumpRender();
         o.canvas?.requestRenderAll();
       })
       .catch(() => masks.delete(o.layerMask));
@@ -91,7 +98,7 @@ export const maskDrawable = (o) => (o.layerMask ? maskFor(o) : null);
 const pool = [];
 let depth = 0;
 function scratch(slot, w, h) {
-  const key = depth * 4 + slot;
+  const key = depth * 6 + slot;
   let c = pool[key];
   if (!c) c = pool[key] = document.createElement('canvas');
   // Exact size, so nothing left from an earlier frame can bleed in at the edges.
@@ -156,6 +163,11 @@ export function clipBaseOf(o) {
   return null;
 }
 
+/** Draws a layer as a clipping base would see it: its pixels with mask and warp, no effects. */
+export function drawSilhouette(b, ctx) {
+  renderAsBase(b, ctx);
+}
+
 function renderAsBase(b, ctx) {
   if (maskOn(b) || (b.warp && b.warpBend)) renderFx(b, ctx, true);
   else plainRender(b, ctx);
@@ -178,6 +190,13 @@ function effectMargin(o, vs) {
   let m = 2 + Math.abs(warpReach(o)) * Math.abs(o.scaleY) * vs;
   if (o.outlineWidth > 0) m += o.outlineWidth * vs;
   if (o.glowSize > 0) m += o.glowSize * vs * 1.6;
+  if (hasCorners(o)) {
+    const c = o.corners;
+    const d = [-o.width / 2, -o.height / 2, o.width / 2, -o.height / 2, o.width / 2, o.height / 2, -o.width / 2, o.height / 2];
+    let far = 0;
+    for (let i = 0; i < 8; i++) far = Math.max(far, Math.abs(c[i] - d[i]));
+    m += far * Math.max(Math.abs(o.scaleX), Math.abs(o.scaleY)) * vs;
+  }
   if (o.shadow) {
     const sc = shadowScale(o, vs);
     m += (Math.max(Math.abs(o.shadow.offsetX), Math.abs(o.shadow.offsetY)) + o.shadow.blur) * sc;
@@ -204,7 +223,8 @@ function renderFx(o, ctx, asBase) {
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  for (const [x, y] of [
+  const quad = hasCorners(o) ? cornersOf(o, pad) : null;
+  for (const [x, y] of quad || [
     [-bw / 2, -bh / 2 - ext],
     [bw / 2, -bh / 2 - ext],
     [bw / 2, bh / 2 + ext],
@@ -260,7 +280,10 @@ function renderFx(o, ctx, asBase) {
     // 2. Onto the screen region, warped if set.
     const [A, ac] = scratch(2, rw, rh);
     ac.imageSmoothingQuality = 'high';
-    if (reach) {
+    if (quad) {
+      ac.setTransform(new DOMMatrix([1, 0, 0, 1, -x0, -y0]).multiply(M));
+      drawQuad(ac, L, lw, lh, quad);
+    } else if (reach) {
       ac.setTransform(new DOMMatrix([1, 0, 0, 1, -x0, -y0]).multiply(M));
       drawWarped(ac, L, lw, lh, bw, bh, o.warp, reach, warpSpan(o));
     } else {
@@ -280,6 +303,8 @@ function renderFx(o, ctx, asBase) {
       ac.drawImage(B, 0, 0, rw, rh, 0, 0, rw, rh);
       ac.globalCompositeOperation = 'source-over';
     }
+
+    if (!asBase && hasStyle(o)) applyStyles(o, ac, A, rw, rh, new DOMMatrix([1, 0, 0, 1, -x0, -y0]).multiply(M), bw, bh, vs);
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -332,12 +357,178 @@ function renderFx(o, ctx, asBase) {
   }
 }
 
+const rgba = (hex, a) => {
+  const n = parseInt(String(hex || '#000000').slice(1), 16) || 0;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
+/**
+ * Layer styles that sit inside the layer's shape: colour and gradient overlay,
+ * inner glow, inner shadow and bevel. `L2D` maps the object's own units onto A.
+ */
+function applyStyles(o, ac, A, rw, rh, L2D, bw, bh, vs) {
+  ac.save();
+  ac.globalCompositeOperation = 'source-atop';
+  if (o.colorOverlay) {
+    ac.globalAlpha = (o.colorOverlay.opacity ?? 100) / 100;
+    ac.fillStyle = o.colorOverlay.color || '#e0b45a';
+    ac.fillRect(0, 0, rw, rh);
+  }
+  if (o.gradientOverlay) {
+    const g = o.gradientOverlay;
+    const a = ((g.angle ?? 90) * Math.PI) / 180;
+    const dx = Math.cos(a);
+    const dy = Math.sin(a);
+    const half = Math.abs(dx) * (bw / 2) + Math.abs(dy) * (bh / 2);
+    ac.setTransform(L2D);
+    const grad = ac.createLinearGradient(-dx * half, -dy * half, dx * half, dy * half);
+    grad.addColorStop(0, g.from || '#e0b45a');
+    grad.addColorStop(1, g.to || '#14497a');
+    ac.globalAlpha = (g.opacity ?? 100) / 100;
+    ac.fillStyle = grad;
+    ac.fillRect(-bw, -bh, bw * 2, bh * 2);
+    ac.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  ac.globalAlpha = 1;
+  ac.restore();
+  if (!(o.innerShadow || o.innerGlow || o.bevel)) return;
+  // Everything outside the shape, so its shadow falls inside the edge.
+  const [I, ic] = scratch(4, rw, rh);
+  ic.fillStyle = '#000';
+  ic.fillRect(0, 0, rw, rh);
+  ic.globalCompositeOperation = 'destination-out';
+  ic.drawImage(A, 0, 0);
+  ic.globalCompositeOperation = 'source-over';
+  const FAR = 20000 + rw;
+  const inner = (color, blur, ox, oy, times = 1) => {
+    ac.save();
+    ac.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < times; i++) shadowPassFrom(ac, I, rw, rh, 0, 0, FAR, color, blur, ox, oy);
+    ac.restore();
+  };
+  if (o.innerGlow) {
+    const g = o.innerGlow;
+    inner(rgba(g.color || '#fff3c4', (g.opacity ?? 75) / 100), (g.size ?? 16) * vs, 0, 0, 2);
+  }
+  if (o.innerShadow) {
+    const sh = o.innerShadow;
+    inner(rgba(sh.color || '#000000', (sh.opacity ?? 50) / 100), (sh.blur ?? 12) * vs, (sh.x ?? 4) * vs, (sh.y ?? 6) * vs);
+  }
+  if (o.bevel) {
+    const b = o.bevel;
+    const size = (b.size ?? 10) * vs;
+    const k = (b.depth ?? 60) / 100;
+    const a = ((b.angle ?? 135) * Math.PI) / 180;
+    // Light comes from `angle`: the edges facing it get the highlight.
+    const lx = -Math.cos(a) * size * 0.6;
+    const ly = Math.sin(a) * size * 0.6;
+    inner(rgba('#ffffff', Math.min(1, 0.75 * k + 0.1)), size, lx, ly, 2);
+    inner(rgba('#000000', Math.min(1, 0.6 * k + 0.1)), size, -lx, -ly, 2);
+  }
+}
+
 function shadowPassFrom(ctx, src, rw, rh, x0, y0, far, color, blur, ox, oy) {
   ctx.shadowColor = color;
   ctx.shadowBlur = blur;
   ctx.shadowOffsetX = ox + far;
   ctx.shadowOffsetY = oy;
   ctx.drawImage(src, 0, 0, rw, rh, x0 - far, y0, rw, rh);
+}
+
+// ---------- Distort and perspective ----------
+
+/** The four corners (top left, top right, bottom right, bottom left) in the object's own units, padded like its box. */
+export function cornersOf(o, pad = 0) {
+  const c = o.corners;
+  const pts = [
+    [c[0], c[1]],
+    [c[2], c[3]],
+    [c[4], c[5]],
+    [c[6], c[7]],
+  ];
+  if (!pad) return pts;
+  // Push each corner outward by the padding, so strokes at the edge are kept.
+  const cx = (c[0] + c[2] + c[4] + c[6]) / 4;
+  const cy = (c[1] + c[3] + c[5] + c[7]) / 4;
+  const kx = (o.width / 2 + pad) / (o.width / 2 || 1);
+  const ky = (o.height / 2 + pad) / (o.height / 2 || 1);
+  return pts.map(([x, y]) => [cx + (x - cx) * kx, cy + (y - cy) * ky]);
+}
+
+/** Maps the unit square onto a four-sided shape with a true perspective (a homography). */
+export function squareToQuad(q) {
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+  const dx1 = x1 - x2;
+  const dx2 = x3 - x2;
+  const dy1 = y1 - y2;
+  const dy2 = y3 - y2;
+  const sx = x0 - x1 + x2 - x3;
+  const sy = y0 - y1 + y2 - y3;
+  let g = 0;
+  let hh = 0;
+  if (Math.abs(sx) > 1e-9 || Math.abs(sy) > 1e-9) {
+    const den = dx1 * dy2 - dx2 * dy1 || 1e-9;
+    g = (sx * dy2 - dx2 * sy) / den;
+    hh = (dx1 * sy - sx * dy1) / den;
+  }
+  const a = x1 - x0 + g * x1;
+  const b = x3 - x0 + hh * x3;
+  const c = x0;
+  const d = y1 - y0 + g * y1;
+  const e = y3 - y0 + hh * y3;
+  const f = y0;
+  return (u, v) => {
+    const w = g * u + hh * v + 1;
+    return [(a * u + b * v + c) / w, (d * u + e * v + f) / w];
+  };
+}
+
+/** Draws the flat layer L onto the quad in small triangles, each an affine piece. */
+function drawQuad(c, L, lw, lh, quad) {
+  const map = squareToQuad(quad);
+  const n = 14;
+  const P = [];
+  for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) P.push(map(i / n, j / n));
+  const tri = (s0, s1, s2, d0, d1, d2) => {
+    // Affine transform that takes the source triangle onto the destination one.
+    const den = s0[0] * (s1[1] - s2[1]) + s1[0] * (s2[1] - s0[1]) + s2[0] * (s0[1] - s1[1]);
+    if (Math.abs(den) < 1e-9) return;
+    const m11 = (d0[0] * (s1[1] - s2[1]) + d1[0] * (s2[1] - s0[1]) + d2[0] * (s0[1] - s1[1])) / den;
+    const m12 = (d0[0] * (s2[0] - s1[0]) + d1[0] * (s0[0] - s2[0]) + d2[0] * (s1[0] - s0[0])) / den;
+    const m13 = (d0[0] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[0] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[0] * (s0[0] * s1[1] - s1[0] * s0[1])) / den;
+    const m21 = (d0[1] * (s1[1] - s2[1]) + d1[1] * (s2[1] - s0[1]) + d2[1] * (s0[1] - s1[1])) / den;
+    const m22 = (d0[1] * (s2[0] - s1[0]) + d1[1] * (s0[0] - s2[0]) + d2[1] * (s1[0] - s0[0])) / den;
+    const m23 = (d0[1] * (s1[0] * s2[1] - s2[0] * s1[1]) + d1[1] * (s2[0] * s0[1] - s0[0] * s2[1]) + d2[1] * (s0[0] * s1[1] - s1[0] * s0[1])) / den;
+    // Grow the triangle a little so neighbours overlap and no seams show.
+    const cx = (d0[0] + d1[0] + d2[0]) / 3;
+    const cy = (d0[1] + d1[1] + d2[1]) / 3;
+    const grow = (p) => [p[0] + Math.sign(p[0] - cx) * 0.6, p[1] + Math.sign(p[1] - cy) * 0.6];
+    const [g0, g1, g2] = [grow(d0), grow(d1), grow(d2)];
+    c.save();
+    c.beginPath();
+    c.moveTo(g0[0], g0[1]);
+    c.lineTo(g1[0], g1[1]);
+    c.lineTo(g2[0], g2[1]);
+    c.closePath();
+    c.clip();
+    c.transform(m11, m21, m12, m22, m13, m23);
+    c.drawImage(L, 0, 0);
+    c.restore();
+  };
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const s00 = [(i / n) * lw, (j / n) * lh];
+      const s10 = [((i + 1) / n) * lw, (j / n) * lh];
+      const s01 = [(i / n) * lw, ((j + 1) / n) * lh];
+      const s11 = [((i + 1) / n) * lw, ((j + 1) / n) * lh];
+      const d00 = P[j * (n + 1) + i];
+      const d10 = P[j * (n + 1) + i + 1];
+      const d01 = P[(j + 1) * (n + 1) + i];
+      const d11 = P[(j + 1) * (n + 1) + i + 1];
+      tri(s00, s10, s11, d00, d10, d11);
+      tri(s00, s11, s01, d00, d11, d01);
+    }
+  }
 }
 
 // ---------- Warp ----------

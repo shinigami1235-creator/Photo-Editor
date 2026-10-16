@@ -3,6 +3,7 @@ import { fabric } from './canvas.js';
 import { state } from './state.js';
 import { ensureFontsFor } from './fonts.js';
 import { preloadMasks } from './layerfx.js';
+import { preloadLuts } from './luts.js';
 import { loadImage } from './assets.js';
 
 /** Draws a page on its own canvas at `multiplier` times the design size. */
@@ -10,6 +11,7 @@ export async function renderPage(page, multiplier = 1, { transparent = false, tr
   const { width, height } = state.doc;
   await ensureFontsFor(page.objects);
   await preloadMasks(page.objects);
+  await preloadLuts(page.objects);
   const el = document.createElement('canvas');
   const sc = new fabric.StaticCanvas(el, { width, height, enableRetinaScaling: false, renderOnAddRemove: false });
   sc.backgroundColor = transparent ? null : page.background || '#ffffff';

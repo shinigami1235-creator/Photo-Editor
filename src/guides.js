@@ -6,6 +6,7 @@ import { selectObjects } from './objects.js';
 // Snap guides while dragging, plus align and distribute.
 
 let lines = { x: [], y: [] };
+let measures = []; // { x1, y1, x2, y2, text } in page units, while dragging
 export let snapping = true;
 export const setSnapping = (v) => (snapping = v);
 
@@ -46,8 +47,13 @@ function best(values, candidates, tol) {
 export function initGuides() {
   canvas.on('object:moving', (e) => {
     lines = { x: [], y: [] };
+    measures = [];
     const o = e.target;
-    if (!snapping || o.isTemp || e.e?.altKey) return;
+    if (o.isTemp) return;
+    if (!snapping || e.e?.altKey) {
+      measures = spacing(o, box(o));
+      return;
+    }
     const tol = 6 / canvas.getZoom();
     const b = box(o);
     const { xs, ys } = targets(o);
@@ -57,13 +63,15 @@ export function initGuides() {
     if (hy) o.top += hy.d;
     if (hx || hy) o.setCoords();
     const nb = box(o);
+    measures = spacing(o, nb);
     // Show every guide the object now touches.
     for (const x of new Set(xs)) if ([nb.l, nb.cx, nb.r].some((v) => Math.abs(v - x) < 0.5)) lines.x.push(x);
     for (const y of new Set(ys)) if ([nb.t, nb.cy, nb.b].some((v) => Math.abs(v - y) < 0.5)) lines.y.push(y);
   });
   const clear = () => {
-    if (lines.x.length || lines.y.length) {
+    if (lines.x.length || lines.y.length || measures.length) {
       lines = { x: [], y: [] };
+      measures = [];
       canvas.requestRenderAll();
     }
   };
@@ -71,6 +79,7 @@ export function initGuides() {
   canvas.on('selection:cleared', clear);
 
   canvas.on('after:render', ({ ctx }) => {
+    if (measures.length) drawMeasures(ctx);
     if (!lines.x.length && !lines.y.length) return;
     const v = canvas.viewportTransform;
     const z = canvas.getZoom();
@@ -91,6 +100,87 @@ export function initGuides() {
     ctx.stroke();
     ctx.restore();
   });
+}
+
+/**
+ * The gaps from a moving layer to the nearest layer (or the page edge) on each
+ * side, shown as labelled lines like Figma's spacing hints.
+ */
+function spacing(moving, b) {
+  const skip = new Set(moving.type === 'activeselection' ? moving.getObjects() : [moving]);
+  const others = designObjects().filter((o) => !skip.has(o) && o.visible && !o.isAdjustment).map(box);
+  const out = [];
+  const cy = (Math.max(b.t, 0) + Math.min(b.b, state.doc.height)) / 2;
+  const cx = (Math.max(b.l, 0) + Math.min(b.r, state.doc.width)) / 2;
+  const overlapY = (o) => o.t < b.b && o.b > b.t;
+  const overlapX = (o) => o.l < b.r && o.r > b.l;
+  const near = (cands, pick) => cands.reduce((best, o) => (best == null || pick(o) > pick(best) ? o : best), null);
+  // Left and right.
+  const left = near(others.filter((o) => overlapY(o) && o.r <= b.l + 0.5), (o) => o.r);
+  const right = near(others.filter((o) => overlapY(o) && o.l >= b.r - 0.5), (o) => -o.l);
+  const top = near(others.filter((o) => overlapX(o) && o.b <= b.t + 0.5), (o) => o.b);
+  const bottom = near(others.filter((o) => overlapX(o) && o.t >= b.b - 0.5), (o) => -o.t);
+  const lx = left ? left.r : 0;
+  const rx = right ? right.l : state.doc.width;
+  const ty = top ? top.b : 0;
+  const by = bottom ? bottom.t : state.doc.height;
+  if (b.l - lx > 0.5) out.push({ x1: lx, y1: cy, x2: b.l, y2: cy, d: b.l - lx });
+  if (rx - b.r > 0.5) out.push({ x1: b.r, y1: cy, x2: rx, y2: cy, d: rx - b.r });
+  if (b.t - ty > 0.5) out.push({ x1: cx, y1: ty, x2: cx, y2: b.t, d: b.t - ty });
+  if (by - b.b > 0.5) out.push({ x1: cx, y1: b.b, x2: cx, y2: by, d: by - b.b });
+  // Equal gaps on both sides show in pink.
+  const h = out.filter((m) => m.y1 === m.y2);
+  const v = out.filter((m) => m.x1 === m.x2);
+  if (h.length === 2 && Math.abs(h[0].d - h[1].d) < 1) h.forEach((m) => (m.equal = true));
+  if (v.length === 2 && Math.abs(v[0].d - v[1].d) < 1) v.forEach((m) => (m.equal = true));
+  return out;
+}
+
+function drawMeasures(ctx) {
+  const v = canvas.viewportTransform;
+  const z = canvas.getZoom();
+  const r = canvas.getRetinaScaling?.() || 1;
+  ctx.save();
+  ctx.setTransform(r, 0, 0, r, 0, 0);
+  const sx = (x) => x * v[0] + v[4];
+  const sy = (y) => y * v[3] + v[5];
+  ctx.font = '600 11px "IBM Plex Sans", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const m of measures) {
+    const col = m.equal ? '#ff3fa4' : '#e0712c';
+    const x1 = sx(m.x1);
+    const y1 = sy(m.y1);
+    const x2 = sx(m.x2);
+    const y2 = sy(m.y2);
+    if (Math.hypot(x2 - x1, y2 - y1) < 6) continue;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    const vert = m.x1 === m.x2;
+    for (const [x, y] of [
+      [x1, y1],
+      [x2, y2],
+    ]) {
+      if (vert) ctx.moveTo(x - 4, y), ctx.lineTo(x + 4, y);
+      else ctx.moveTo(x, y - 4), ctx.lineTo(x, y + 4);
+    }
+    ctx.stroke();
+    const text = String(Math.round(m.d));
+    const tw = ctx.measureText(text).width + 8;
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.roundRect?.(mx - tw / 2, my - 8, tw, 16, 4) ?? ctx.rect(mx - tw / 2, my - 8, tw, 16);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, mx, my + 0.5);
+  }
+  ctx.restore();
+  void z;
 }
 
 function moveBy(o, dx, dy) {

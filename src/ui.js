@@ -75,12 +75,16 @@ export function prompt(title, label, value = '') {
 }
 
 let toastEl = null;
+let toastHook = null;
+/** Lets the status bar show the latest message too. */
+export const setToastHook = (fn) => (toastHook = fn);
 /** A message in the bottom corner. Returns an updater; call .done() to remove it. */
 export function toast(text, { sticky = false, error = false } = {}) {
   if (!toastEl) {
     toastEl = h('div', { class: 'toasts' });
     document.body.appendChild(toastEl);
   }
+  toastHook?.(text);
   const bar = h('div', { class: 'toast-bar' });
   const label = h('span', {}, text);
   const t = h('div', { class: 'toast' + (error ? ' error' : '') }, label, bar);
@@ -88,7 +92,10 @@ export function toast(text, { sticky = false, error = false } = {}) {
   const done = () => t.remove();
   if (!sticky) setTimeout(done, error ? 6000 : 2800);
   return {
-    text: (s) => (label.textContent = s),
+    text: (s) => {
+      label.textContent = s;
+      toastHook?.(s);
+    },
     progress: (f) => {
       bar.style.width = `${Math.round(f * 100)}%`;
       bar.style.display = 'block';
@@ -210,6 +217,40 @@ export const ICONS = {
   wand: svg('<path d="M4 20L15 9"/><path d="M15 4v2M20 9h-2M18.5 5.5l-1.4 1.4M12 3l.6 1.4M21 12l-1.4-.6"/>'),
   lasso: svg('<ellipse cx="12" cy="9" rx="8" ry="5" stroke-dasharray="3 2"/><path d="M9 13.5c-1 2 0 4 2 4.5 1 .3 1 1.5 0 2"/>'),
   heading: svg('<path d="M6 4v16M18 4v16M6 12h12"/>', 'stroke-width="2.2"'),
+  move: svg('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
+  marqueeRect: svg('<rect x="4" y="5" width="16" height="14" rx="1" stroke-dasharray="3 2.4"/>'),
+  marqueeEllipse: svg('<ellipse cx="12" cy="12" rx="9" ry="7" stroke-dasharray="3 2.4"/>'),
+  polyLasso: svg('<path d="M4 8l7-4 9 5-3 8-8 1z" stroke-dasharray="3 2.2"/><path d="M9 18c-1 1.5 0 3 1.5 3"/>'),
+  heal: svg('<rect x="3.5" y="8.5" width="17" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M10 10.5h.01M12 12.5h.01M14 10.5h.01M10 14.5h.01" stroke-width="2.4"/>'),
+  hand: svg('<path d="M8 13V5.5a1.5 1.5 0 013 0V11M11 10.5V4a1.5 1.5 0 013 0v6.5M14 10.5V5.5a1.5 1.5 0 013 0V13"/><path d="M17 9.5a1.5 1.5 0 013 0V14a7 7 0 01-7 7h-1.5a6 6 0 01-4.6-2.2L4 15.5a1.5 1.5 0 012.3-1.9L8 15.5"/>'),
+  zoom: svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21M8 10.5h5M10.5 8v5"/>'),
+  star: svg('<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>'),
+  polygon: svg('<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/>'),
+  arrow: svg('<path d="M3 9.5h11V5l7 7-7 7v-4.5H3z"/>'),
+  heart: svg('<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0112 7.3 4.3 4.3 0 0119.5 10c0 5.4-7.5 10-7.5 10z"/>'),
+  bubble: svg('<path d="M5 4h14a2 2 0 012 2v9a2 2 0 01-2 2H10l-5 4v-4a2 2 0 01-2-2V6a2 2 0 012-2z"/>'),
+  burst: svg('<path d="M12 2l2 3.3 3.6-1.3.3 3.8 3.8.3-1.3 3.6L22 12l-3.3 2 1.3 3.6-3.8.3-.3 3.8-3.6-1.3L12 22l-2-3.3-3.6 1.3-.3-3.8-3.8-.3 1.3-3.6L2 12l3.3-2L4 6.4l3.8-.3.3-3.8L11.7 3.6z"/>'),
+  cross: svg('<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>'),
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>'),
+  history: svg('<path d="M3 12a9 9 0 103-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>'),
+  sliders: svg('<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'),
+  pages: svg('<rect x="7" y="3" width="13" height="15" rx="1.5"/><path d="M4 7v12.5A1.5 1.5 0 005.5 21H16"/>'),
+  swap: svg('<path d="M7 4L4 7l3 3M4 7h11a3 3 0 013 3v1M17 20l3-3-3-3M20 17H9a3 3 0 01-3-3v-1"/>'),
+  elements: svg('<circle cx="7.5" cy="7.5" r="4"/><path d="M13 13h8v8h-8zM16.5 3l4 7h-8z"/><path d="M3.5 14l3 3-3 3"/>'),
+  fx: svg('<path d="M10 4H8a2 2 0 00-2 2v14M3.5 10h6"/><path d="M13 10l7 9M20 10l-7 9"/>'),
+  adjustLayer: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 010 17z" fill="currentColor"/>'),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  levels: svg('<path d="M3 20h18"/><path d="M4 20c2-1 2-9 4-9s2 6 4 6 2-11 4-11 3 13 4 14"/>'),
+  curves: svg('<rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M5 19C9 18 9 6 19 5"/>'),
+  vibrance: svg('<path d="M12 3l9 16H3z"/><path d="M12 9v5M12 17h.01"/>'),
+  hsl: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v8.5l7.4 4.3M12 12l-7.4 4.3"/>'),
+  bw: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 20.5l17-17V20.5z" fill="currentColor"/>'),
+  photoFilter: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/>'),
+  lut: svg('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>'),
+  grading: svg('<circle cx="8" cy="9" r="5"/><circle cx="16" cy="9" r="5"/><circle cx="12" cy="16" r="5"/>'),
+  grain: svg('<path d="M5 5h.01M9 7h.01M14 5h.01M18 8h.01M6 11h.01M11 11h.01M16 12h.01M7 16h.01M12 15h.01M17 17h.01M9 19h.01M14 19h.01" stroke-width="2.6"/>'),
+  detail: svg('<path d="M3 17l5-5 4 4 4-6 5 7"/><path d="M3 21h18"/>'),
+  info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>'),
 };
 
 /** The app icon: a gold photo frame on navy, drawn the Cygnus Tools way. */

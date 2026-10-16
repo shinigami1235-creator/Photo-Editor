@@ -33,6 +33,8 @@ export const state = {
   path: null, // where the design was last saved (desktop only)
   dirty: false,
   brandKitId: null,
+  fg: '#000000', // foreground colour: new shapes, text, brush and fills
+  bg: '#ffffff',
 };
 
 export function newDoc({ name = 'Untitled design', width, height, dpi = 72 }) {

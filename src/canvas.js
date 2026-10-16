@@ -3,7 +3,7 @@ import { state, currentPage, emit } from './state.js';
 import { FX_PROPS } from './layerfx.js';
 
 // Properties saved with every object on top of Fabric's own.
-fabric.FabricObject.customProperties = ['uid', 'name', 'locked', 'isFrame', 'frameKind', 'frameShape', 'originalSrc', 'cutout', 'innerAngle', 'innerFlipX', 'innerFlipY', 'curve', 'flatWidth', 'qrText', 'qrDark', 'qrLight', 'qrEc', 'iconKind', 'iconColor', 'iconWidth', ...FX_PROPS];
+fabric.FabricObject.customProperties = ['uid', 'name', 'locked', 'isFrame', 'frameKind', 'frameShape', 'originalSrc', 'cutout', 'innerAngle', 'innerFlipX', 'innerFlipY', 'curve', 'flatWidth', 'qrText', 'qrDark', 'qrLight', 'qrEc', 'iconKind', 'iconColor', 'iconWidth', 'shapeKind', 'shapeOpts', 'pin', 'onShape', 'patternFill', ...FX_PROPS];
 
 Object.assign(fabric.InteractiveFabricObject.ownDefaults, {
   borderColor: '#1f5e99',
@@ -92,8 +92,15 @@ export function zoomTo(z, point) {
 export const zoomBy = (factor) => zoomTo(canvas.getZoom() * factor);
 
 let spaceDown = false;
+let handTool = false;
 /** True while Space is held for panning. */
 export const isSpaceDown = () => spaceDown;
+/** The Hand tool pans with a plain drag. */
+export function setHandTool(v) {
+  handTool = v;
+  canvas.defaultCursor = v ? 'grab' : 'default';
+  canvas.setCursor(canvas.defaultCursor);
+}
 function setupPanZoom(host) {
   let panning = false;
   let last = null;
@@ -114,7 +121,7 @@ function setupPanZoom(host) {
 
   canvas.on('mouse:down', (opt) => {
     const e = opt.e;
-    if (spaceDown || e.button === 1) {
+    if (spaceDown || e.button === 1 || (handTool && e.button === 0)) {
       panning = true;
       last = { x: e.clientX, y: e.clientY };
       canvas.selection = false;
@@ -132,8 +139,8 @@ function setupPanZoom(host) {
   canvas.on('mouse:up', () => {
     if (!panning) return;
     panning = false;
-    canvas.selection = true;
-    canvas.setCursor(spaceDown ? 'grab' : 'default');
+    canvas.selection = !handTool;
+    canvas.setCursor(spaceDown || handTool ? 'grab' : 'default');
   });
 
   const typing = () => {
@@ -151,8 +158,8 @@ function setupPanZoom(host) {
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space') {
       spaceDown = false;
-      canvas.defaultCursor = 'default';
-      canvas.setCursor('default');
+      canvas.defaultCursor = handTool ? 'grab' : 'default';
+      canvas.setCursor(canvas.defaultCursor);
     }
   });
 }
@@ -215,7 +222,7 @@ export function objectAt(point) {
   const list = designObjects();
   for (let i = list.length - 1; i >= 0; i--) {
     const o = list[i];
-    if (o.visible && o.containsPoint(point)) return o;
+    if (o.visible && !o.isAdjustment && o.containsPoint(point)) return o;
   }
   return null;
 }

@@ -26,19 +26,34 @@ export async function adaptObjects(objects, from, to) {
     o.setCoords();
     const r = o.getBoundingRect();
     const isBack = r.width >= from.w * 0.9 && r.height >= from.h * 0.9;
+    const pin = o.pin || {};
     const s = isBack ? cover : fit;
-    const along = (lo, size, full, toFull) => {
+    // `mode` is the pin set in Layer > When resizing the design, or 'auto'.
+    const along = (lo, size, full, toFull, mode) => {
       const hi = full - (lo + size);
       const ns = size * s;
+      if (mode === 'start') return lo * s;
+      if (mode === 'end') return toFull - hi * s - ns;
+      if (mode === 'center') return toFull / 2 + (lo + size / 2 - full / 2) * s - ns / 2;
+      if (mode === 'stretch') return (lo / full) * toFull;
       // A background, or anything spanning most of this side, stays centred.
       if (isBack || (lo < full * 0.15 && hi < full * 0.15)) return toFull / 2 + (lo + size / 2 - full / 2) * s - ns / 2;
       if (lo < full * 0.15 && lo <= hi) return lo * s;
       if (hi < full * 0.15) return toFull - hi * s - ns;
       return ((lo + size / 2) / full) * toFull - ns / 2;
     };
-    const nl = along(r.left, r.width, from.w, to.w);
-    const nt = along(r.top, r.height, from.h, to.h);
-    o.set({ scaleX: o.scaleX * s, scaleY: o.scaleY * s });
+    const hMode = { left: 'start', right: 'end', center: 'center', stretch: 'stretch' }[pin.h] || 'auto';
+    const vMode = { top: 'start', bottom: 'end', middle: 'center', stretch: 'stretch' }[pin.v] || 'auto';
+    const nl = along(r.left, r.width, from.w, to.w, hMode);
+    const nt = along(r.top, r.height, from.h, to.h, vMode);
+    let sx = s;
+    let sy = s;
+    if (hMode === 'stretch') sx = to.w / from.w;
+    if (vMode === 'stretch') sy = to.h / from.h;
+    if (o.type === 'textbox' && hMode === 'stretch') {
+      o.set({ width: o.width * (sx / s), scaleX: o.scaleX * s, scaleY: o.scaleY * s });
+      o.initDimensions?.();
+    } else o.set({ scaleX: o.scaleX * sx, scaleY: o.scaleY * sy });
     o.setCoords();
     const r2 = o.getBoundingRect();
     o.set({ left: o.left + nl - r2.left, top: o.top + nt - r2.top });

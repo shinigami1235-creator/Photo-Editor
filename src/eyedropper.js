@@ -8,7 +8,8 @@ let active = null;
 
 const hexOf = (d) => '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('');
 
-function sample(e) {
+/** The page colour under a mouse event, as #rrggbb, or null off the canvas. */
+export function sample(e) {
   const el = canvas.lowerCanvasEl;
   const r = el.getBoundingClientRect();
   const x = Math.floor(((e.clientX - r.left) / r.width) * el.width);

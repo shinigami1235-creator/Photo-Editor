@@ -567,6 +567,64 @@ function wandAt(p, op) {
   setMask(combine(applyFeather(c), op));
 }
 
+// ---------- Colour range ----------
+
+/**
+ * How strongly a colour belongs to a colour range, 0 to 1. `mode` is 'color'
+ * (near `color`, within `fuzz` 0 to 100), 'highlights', 'midtones', 'shadows' or 'skin'.
+ */
+export function rangeWeight(mode, r, g, b, color, fuzz) {
+  const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const soft = (v, a, w) => Math.max(0, Math.min(1, (v - a) / w));
+  if (mode === 'highlights') return soft(l, 0.55, 0.2);
+  if (mode === 'shadows') return 1 - soft(l, 0.25, 0.2);
+  if (mode === 'midtones') return Math.max(0, 1 - Math.abs(l - 0.5) / 0.3);
+  if (mode === 'skin') {
+    // Skin of any tone sits in a narrow band of orange hues with red above green above blue.
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    if (!(r > g && g > b) || mx - mn < 12 || l < 0.12) return 0;
+    const hue = (60 * (g - b)) / (mx - mn);
+    return Math.max(0, 1 - Math.abs(hue - 24) / 22) * Math.min(1, (mx - mn) / 40);
+  }
+  const d = Math.hypot(r - color[0], g - color[1], b - color[2]) / 441;
+  const f = Math.max(0.01, (fuzz / 100) * 0.5);
+  return Math.max(0, 1 - d / f);
+}
+
+/** Selects every pixel of the page in a colour range, softly. */
+export function selectColorRange({ mode, color = [0, 0, 0], fuzz = 40 }, op = S.op) {
+  if (!state.doc) return;
+  const keep = S.sample;
+  S.sample = 'all';
+  const src = sampleCanvas();
+  S.sample = keep;
+  const w = src.width;
+  const hgt = src.height;
+  const d = src.getContext('2d').getImageData(0, 0, w, hgt).data;
+  const c = blankMask();
+  const x = c.getContext('2d');
+  const img = x.createImageData(w, hgt);
+  for (let i = 0; i < d.length; i += 4) {
+    const a = Math.round(rangeWeight(mode, d[i], d[i + 1], d[i + 2], color, fuzz) * 255);
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+    img.data[i + 3] = a;
+  }
+  x.putImageData(img, 0, 0);
+  setMask(combine(c, op));
+}
+
+/** The page as the selection tools see it, for previews. */
+export const pagePixels = () => {
+  const keep = S.sample;
+  S.sample = 'all';
+  try {
+    return sampleCanvas();
+  } finally {
+    S.sample = keep;
+  }
+};
+
 // ---------- Selection commands ----------
 
 export function selectAll() {
@@ -819,7 +877,7 @@ export async function copyToLayer(cut = false) {
 }
 
 /** Fills the selection with a colour, as a new layer. */
-export async function fillSelection(color = S.fill) {
+export async function fillSelection(color = state.fg) {
   if (!S.mask) return;
   const r = S.bounds;
   const scale = S.res;
@@ -909,15 +967,15 @@ export function toggleLayerMask(o) {
 }
 
 /** Flattens layers into one photo layer, keeping how they look together. */
-export async function mergeLayers(list) {
+export async function mergeLayers(list, { name = 'Merged', one = false } = {}) {
   const objs = canvas.getObjects();
-  list = [...list].sort((a, b) => objs.indexOf(a) - objs.indexOf(b));
-  if (list.length < 2) return;
+  list = [...list].filter(Boolean).sort((a, b) => objs.indexOf(a) - objs.indexOf(b));
+  if (list.length < (one ? 1 : 2)) return;
   canvas.discardActiveObject();
   const rect = boundsOf(list);
   const scale = nativeScale(list, rect);
   const c = rasterize(list, rect, scale);
-  const img = await addLayerFrom(c, rect, scale, 'Merged', list[list.length - 1]);
+  const img = await addLayerFrom(c, rect, scale, name, list[list.length - 1]);
   canvas.remove(...list);
   if (img) {
     if (S.on) setTarget(img);
@@ -971,31 +1029,85 @@ function setTool(t) {
   S.live = null;
   drawOverlay();
   renderPanel();
+  emit('select-tool', t);
 }
 
-// ---------- Panel ----------
+/** Picks the selection tool: rect, ellipse, lasso, poly or wand. */
+export const setSelectTool = (t) => setTool(t);
+export const selectTool = () => S.tool;
+
+// ---------- Options bar and panel ----------
 
 let panelHost = null;
+let optionsHost = null;
 
 const layerLabel = (o) => (o.type === 'textbox' ? o.text.split('\n')[0].slice(0, 30) || 'Text' : o.name || 'Layer');
 
+/** The selection actions, shown in Properties while a selection tool is on. */
 export function selectPanel(body) {
   panelHost = h('div', { class: 'sel-panel' });
   body.append(panelHost);
   renderPanel();
 }
 
+/** The selection tool settings, shown in the options bar. */
+export function selectOptions(host) {
+  optionsHost = host;
+  renderPanel();
+}
+
+const SEL_HINT = {
+  rect: 'Drag to select a rectangle.',
+  ellipse: 'Drag to select an ellipse.',
+  lasso: 'Drag around an area.',
+  poly: 'Click each corner, then click the first point or press Enter.',
+  wand: 'Click a colour to select the area around it.',
+};
+
+function renderOptions() {
+  if (!optionsHost || !optionsHost.isConnected) return;
+  optionsHost.innerHTML = '';
+  const seg = (items, cur, pick) =>
+    h('div', { class: 'seg small' }, items.map(([v, label]) => h('button', { class: cur === v ? 'on' : '', title: label, onclick: () => pick(v) }, label)));
+  const num = (label, value, set, { min = 0, max = 100, suffix = '', title = '' } = {}) =>
+    h(
+      'label',
+      { class: 'opt-num', title },
+      h('span', { class: 'label' }, label),
+      h('input', { class: 'field num', type: 'number', min, max, value, oninput: (e) => set(Math.max(min, Math.min(max, +e.target.value || 0))) }),
+      suffix ? h('span', { class: 'suffix' }, suffix) : null,
+    );
+  optionsHost.append(
+    seg(OPS, S.op, (v) => {
+      S.op = v;
+      renderPanel();
+    }),
+    num('Feather', S.feather, (v) => (S.feather = v), { max: 100, suffix: 'px', title: 'Softens the edge of the next selection' }),
+  );
+  if (S.tool === 'wand') {
+    optionsHost.append(
+      num('Tolerance', S.tol, (v) => (S.tol = v), { max: 100 }),
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.contiguous, onchange: (e) => (S.contiguous = e.target.checked) }), 'Connected only'),
+      h(
+        'select',
+        { class: 'field opt-select', title: 'Which layers the wand looks at', onchange: (e) => (S.sample = e.target.value) },
+        h('option', { value: 'layer', selected: S.sample === 'layer' }, 'This layer'),
+        h('option', { value: 'all', selected: S.sample === 'all' }, 'All layers'),
+      ),
+    );
+  }
+  optionsHost.append(
+    h('button', { class: 'btn small', disabled: subjectBusy, title: 'Finds the person or product with the background model', onclick: () => selectSubject(S.op) }, subjectBusy ? 'Finding the subject' : 'Select subject'),
+    h('span', { class: 'opt-hint muted' }, `${SEL_HINT[S.tool]} Shift adds, Alt subtracts.`),
+  );
+}
+
 function renderPanel() {
+  renderOptions();
   if (!panelHost || !panelHost.isConnected || !state.doc) return;
   panelHost.innerHTML = '';
   const t = selectionTarget();
   const has = !!S.mask;
-  const seg = (items, cur, pick, cls = '') =>
-    h(
-      'div',
-      { class: 'seg' + cls },
-      items.map(([v, label, key]) => h('button', { class: cur === v ? 'on' : '', title: key ? `${label} (${key})` : label, onclick: () => pick(v) }, label)),
-    );
   const btn = (label, fn, { disabled = false, title = '', primary = false } = {}) =>
     h('button', { class: 'btn' + (primary ? ' primary' : ''), title, disabled, onclick: fn }, label);
 
@@ -1010,60 +1122,11 @@ function renderPanel() {
     layers.map((o, i) => h('option', { value: String(i), selected: o === t }, layerLabel(o))),
   );
 
-  const hint = {
-    rect: 'Drag to select a rectangle.',
-    ellipse: 'Drag to select an ellipse.',
-    lasso: 'Drag around an area.',
-    poly: 'Click each corner. Click the first point, double-click or press Enter to close.',
-    wand: 'Click a colour to select the area around it.',
-  }[S.tool];
-
   panelHost.append(
-    section(
-      'Tool',
-      h('div', { class: 'sel-tools' }, seg(TOOLS.slice(0, 3), S.tool, setTool), seg(TOOLS.slice(3), S.tool, setTool)),
-      seg(
-        OPS,
-        S.op,
-        (v) => {
-          S.op = v;
-          renderPanel();
-        },
-        ' small',
-      ),
-      h('p', { class: 'muted small' }, `${hint} Hold Shift to add, Alt to subtract.`),
-      S.tool === 'wand' ? rangeField('Tolerance', S.tol, (v) => (S.tol = v), { min: 0, max: 100 }) : null,
-      S.tool === 'wand'
-        ? h(
-            'label',
-            { class: 'check' },
-            h('input', { type: 'checkbox', checked: S.contiguous, onchange: (e) => (S.contiguous = e.target.checked) }),
-            'Connected area only',
-          )
-        : null,
-      S.tool === 'wand'
-        ? h(
-            'label',
-            { class: 'field-row' },
-            h('span', { class: 'label' }, 'Look at'),
-            h(
-              'select',
-              { class: 'field', onchange: (e) => (S.sample = e.target.value) },
-              h('option', { value: 'layer', selected: S.sample === 'layer' }, 'This layer'),
-              h('option', { value: 'all', selected: S.sample === 'all' }, 'All layers'),
-            ),
-          )
-        : null,
-      rangeField('Feather', S.feather, (v) => (S.feather = v), { min: 0, max: 100, suffix: ' px' }),
-    ),
+    h('div', { class: 'props-head' }, h('span', { class: 'props-type' }, 'Selection'), h('span', { class: 'props-name' }, has ? '' : 'nothing selected yet')),
     section('Layer', layerSelect, h('p', { class: 'muted small' }, 'Selections stay when you pick another layer. Ctrl+click a layer in Layers to select its shape.')),
     section(
       'Selection',
-      h(
-        'button',
-        { class: 'btn wide', disabled: subjectBusy, title: 'Finds the person or product with the background model', onclick: () => selectSubject(S.op) },
-        subjectBusy ? 'Finding the subject' : 'Select subject',
-      ),
       row(btn('Select all', selectAll, { title: 'Ctrl+A' }), btn('Deselect', deselect, { disabled: !has, title: 'Esc or Ctrl+D' })),
       row(btn('Invert', invertSelection, { title: 'Ctrl+Shift+I' }), btn('From layer', () => selectFromLayer(t), { disabled: !t, title: 'Selects the pixels of this layer' })),
       h(
@@ -1095,12 +1158,7 @@ function renderPanel() {
         btn('Keep only area', () => hideArea(t, 'outside'), { disabled: !has || !t }),
       ),
       h('button', { class: 'btn wide', disabled: !has || !t || !t.layerMask, onclick: () => hideArea(t, 'show') }, 'Show area again'),
-      h(
-        'div',
-        { class: 'row' },
-        h('input', { type: 'color', class: 'color', value: toHex(S.fill), oninput: (e) => (S.fill = e.target.value) }),
-        h('button', { class: 'btn grow', disabled: !has, onclick: () => fillSelection() }, 'Fill as new layer'),
-      ),
+      h('button', { class: 'btn wide', disabled: !has, title: 'Alt+Backspace. Fills with the foreground colour', onclick: () => fillSelection() }, 'Fill as new layer'),
     ),
     section(
       'Saved selections',
@@ -1122,5 +1180,7 @@ function renderPanel() {
     ),
   );
 }
+
+export { savedList, deleteSaved };
 
 on('objects', () => renderPanel());

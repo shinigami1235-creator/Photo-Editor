@@ -32,6 +32,12 @@ CMYK PDFs are converted with LittleCMS through one of two ECI press profiles in 
 
 RAW files are decoded with LibRaw (libraw-wasm) using the camera's white balance, and the decoded photo is kept in the design as a PNG. LibRaw is under the LGPL, which matters only if the editor is ever sold.
 
+## Borrowed methods
+
+The layout follows PhotoCraft (github.com/storytold/photocraft), an open-source copy of Photoshop. Exposure, highlights and shadows, whites and blacks, vibrance, clarity, texture, dehaze, the colour mixer, noise reduction, grain, auto tone, red eye and the gradient masks follow the methods in LightCraft (github.com/storytold/lightcraft). Combining shapes, text on a path and repeat follow VectorCraft, data merge and preflight follow DesignCraft, and edge pins and spacing labels follow FigCraft. All of them are Rust apps by Storyteller under MIT or Apache 2.0, so none of their code is here. The methods were rewritten in JavaScript. The ArtCraft name and logos belong to Storyteller and are not used.
+
+Shape combining uses polygon-clipping (MIT).
+
 ## Other parts
 
 - **Icons:** Lucide (ISC) and Simple Icons (CC0), packed into `src/icon-data.json` by `npm run icons`. Brand logos stay the trademarks of their owners.
@@ -47,16 +53,30 @@ RAW files are decoded with LibRaw (libraw-wasm) using the camera's white balance
 
 | File | Contents |
 | --- | --- |
-| `src/main.js` | Layout, left panels, top bar, dialogs, export, keys, clipboard, autosave |
+| `src/main.js` | Layout, library panels, files, export, clipboard, the core commands, keys, autosave |
+| `src/menus.js` | The menu bar, in Photoshop's order |
+| `src/commands.js` | Command list, menus, shortcuts and command search |
+| `src/tools.js` | Tool column, options bar, colours, what each tool does on the page |
+| `src/dock.js` | Right-hand panels and the History panel |
 | `src/canvas.js` | Fabric canvas, page drawing, zoom and pan |
 | `src/objects.js` | Adding text, shapes, frames and photos, locking, grouping, arranging |
 | `src/frames.js` | Photo crop handles, frames and crop mode |
-| `src/props.js` | Right-hand settings panel |
+| `src/props.js` | Properties panel |
 | `src/layers.js` | Layers panel: blend, opacity, clip, mask, merge |
-| `src/selection.js` | Select tab: selection tools, Select subject, marching ants, copy, cut, hide, fill, saved selections, text behind subject |
-| `src/layerfx.js` | How masks, clipping, warp, outline and glow are drawn, and flattening layers |
-| `src/maskpaint.js` | Paint mask and Fade out |
-| `src/retouch.js` | Retouch editor: spot heal and clone |
+| `src/selection.js` | Selection tools, Select subject, colour range, marching ants, copy, cut, hide, fill, saved selections, text behind subject |
+| `src/layerfx.js` | How masks, clipping, warp, layer styles and distort are drawn, and flattening layers |
+| `src/layerstyles.js` | Layer style commands |
+| `src/transform.js` | Distort, perspective and skew |
+| `src/adjust.js` | The photo adjustment pass, auto tone, histogram |
+| `src/adjustpanel.js` | The adjustment controls for photos and adjustment layers |
+| `src/adjustlayers.js` | Adjustment layers and the Adjustments panel |
+| `src/develop-ui.js` | Auto, copy and paste adjustments, colour range |
+| `src/lut.js`, `src/luts.js` | .cube colour lookups and the built-in film looks |
+| `src/shapetools.js`, `src/shapeops.js` | Shape outlines, combining shapes, text on a shape, repeat |
+| `src/patterns.js` | Pattern fills |
+| `src/preflight.js` | Check design and edge pins |
+| `src/maskpaint.js` | Paint mask, Fade out and Radial |
+| `src/retouch.js` | Retouch editor: spot heal, clone and red eye |
 | `src/upscale.js`, `src/upscale-worker.js` | Upscale with Real-ESRGAN |
 | `src/eyedropper.js` | Picking a colour from the page |
 | `src/textstyles.js` | Saved text styles |
@@ -65,21 +85,20 @@ RAW files are decoded with LibRaw (libraw-wasm) using the camera's white balance
 | `src/layouts.js` | Other sizes, panorama carousel, before-and-after layouts |
 | `src/rulers.js` | Rulers, guides, story safe zone, slide edges |
 | `src/mac.js` | Cmd and Option labels on a Mac |
-| `src/guides.js` | Snapping, align and distribute |
+| `src/guides.js` | Snapping, spacing labels, align and distribute |
 | `src/fonts.js` | Installed and added fonts, font picker |
 | `src/brand.js` | Brand kits |
 | `src/templates.js` | Templates panel |
 | `src/pages.js` | Pages, switching, resizing the design |
-| `src/history.js` | Undo and redo |
+| `src/history.js` | Undo, redo and step names |
 | `src/project.js` | Reading and writing the .zip design file |
 | `src/exporter.js` | Rendering pages, PNG, JPG and WebP, file size limit, watermark, PDF |
 | `src/bgremove.js`, `src/bg-worker.js` | Background model and the cut-out maths |
 | `src/refine.js` | Cut-out editor |
-| `src/adjust.js`, `src/adjustpanel.js` | Photo adjustments, Looks, curves, levels, colour grading |
-| `src/draw.js` | Draw panel and brushes |
-| `src/batch.js` | Batch export |
+| `src/draw.js` | Brush |
+| `src/batch.js` | Batch export and spreadsheet posts |
 | `src/color.js` | CMYK conversion, print preview and CMYK PDF |
 | `src/raw.js` | Camera RAW decoding |
-| `src/home.js` | Start screen, recent designs, shortcut list |
+| `src/home.js` | Start screen, recent designs |
 | `src/platform.js` | File access through the Rust side |
 | `src-tauri/src/lib.rs` | Rust commands for files, fonts and the model download |

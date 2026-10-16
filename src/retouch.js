@@ -215,13 +215,15 @@ export async function openRetouch(obj) {
         'div',
         { class: 'section' },
         h('div', { class: 'section-title' }, 'Tool'),
-        h('div', { class: 'seg' }, tool('heal', 'Spot heal', 'J'), tool('clone', 'Clone', 'S')),
+        h('div', { class: 'seg' }, tool('heal', 'Spot heal', 'J'), tool('clone', 'Clone', 'S'), tool('eye', 'Red eye', 'E')),
         slider('Brush size', S.size, 2, Math.round(Math.max(W, H) / 4), (v) => (S.size = v), ' px'),
         S.tool === 'clone' ? slider('Hardness', S.hard, 0, 100, (v) => (S.hard = v), '%') : null,
         h(
           'p',
           { class: 'muted small' },
-          S.tool === 'heal'
+          S.tool === 'eye'
+            ? 'Click each red pupil with the circle a little bigger than the eye. Only the red inside the circle turns dark.'
+            : S.tool === 'heal'
             ? 'Paint over a spot, a stray hair or a speck of dust. It fills from the area around it when you let go. Use it on product shots and backgrounds, and keep it off treatment results in before-and-after photos.'
             : S.source
               ? 'Paint to copy from the gold cross. Alt+click somewhere else to pick a new spot.'
@@ -243,6 +245,47 @@ export async function openRetouch(obj) {
       ),
     );
   }
+  /**
+   * Red eye, after LightCraft's: inside the circle, pixels where red stands far
+   * above green and blue get the red taken out and are darkened, with a soft edge.
+   */
+  function redEye(p) {
+    const r = S.size / 2;
+    const x0 = Math.max(0, Math.floor(p.x - r));
+    const y0 = Math.max(0, Math.floor(p.y - r));
+    const w = Math.min(W - x0, Math.ceil(r * 2) + 1);
+    const hh = Math.min(H - y0, Math.ceil(r * 2) + 1);
+    if (w <= 0 || hh <= 0) return;
+    const before = wx.getImageData(x0, y0, w, hh);
+    const img = wx.getImageData(x0, y0, w, hh);
+    const d = img.data;
+    let changed = 0;
+    for (let y = 0; y < hh; y++) {
+      for (let x = 0; x < w; x++) {
+        const dist = Math.hypot(x0 + x - p.x, y0 + y - p.y) / r;
+        if (dist > 1) continue;
+        const i = (y * w + x) * 4;
+        const R = d[i];
+        const G = d[i + 1];
+        const B = d[i + 2];
+        const red = R - Math.max(G, B);
+        if (red < 25 || R < 60) continue;
+        const k = Math.min(1, (red - 25) / 50) * Math.min(1, (1 - dist) * 4);
+        const target = ((G + B) / 2) * 0.8;
+        d[i] = R + (target - R) * k;
+        d[i + 1] = G + (G * 0.85 - G) * k;
+        d[i + 2] = B + (B * 0.85 - B) * k;
+        changed++;
+      }
+    }
+    if (!changed) return say('No red found in the circle. Make the brush bigger or click the centre of the pupil.');
+    wx.putImageData(img, x0, y0);
+    push({ x: x0, y: y0, data: before });
+    S.changed = true;
+    say('');
+    draw();
+  }
+
   function setTool(t) {
     S.tool = t;
     drawSide();
@@ -419,6 +462,10 @@ export async function openRetouch(obj) {
     }
     if (e.button !== 0 || S.busy) return;
     const p = toImage(e);
+    if (S.tool === 'eye') {
+      redEye(p);
+      return;
+    }
     if (S.tool === 'clone') {
       if (e.altKey) {
         S.source = p;
@@ -533,6 +580,7 @@ export async function openRetouch(obj) {
     if (mod) return;
     if (k === 'j') setTool('heal');
     if (k === 's') setTool('clone');
+    if (k === 'e') setTool('eye');
     if (k === '[' || k === ']') {
       S.size = Math.max(2, Math.round(S.size * (k === ']' ? 1.2 : 1 / 1.2)));
       drawSide();

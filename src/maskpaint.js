@@ -2,7 +2,7 @@ import { canvas, isSpaceDown } from './canvas.js';
 import { emit } from './state.js';
 import { record } from './history.js';
 import { h, toast } from './ui.js';
-import { cacheMask, maskDrawable, pageToMask, maskSizeFor } from './layerfx.js';
+import { cacheMask, maskDrawable, pageToMask, maskSizeFor, bumpRender } from './layerfx.js';
 import { setLayerMask, addPainter, refreshOverlay } from './selection.js';
 
 // Painting a layer's mask by hand. The Brush hides or shows parts with a soft
@@ -16,6 +16,7 @@ const S = {
   before: null, // the mask when editing started, for Cancel
   key: '',
   hide: true,
+  invert: false,
   size: 60,
   soft: 50,
   undo: [],
@@ -37,7 +38,7 @@ function copyOf(c) {
   return n;
 }
 
-/** Starts painting the mask of `o`. `mode` is 'brush' or 'fade'. */
+/** Starts painting the mask of `o`. `mode` is 'brush', 'fade' or 'radial'. */
 export function startMaskPaint(o, mode) {
   if (!o) return;
   if (S.on) finish(true);
@@ -90,7 +91,7 @@ function showBar() {
   bar = h(
     'div',
     { class: 'crop-bar show mask-bar' },
-    h('strong', {}, S.on === 'brush' ? 'Mask brush' : 'Fade out'),
+    h('strong', {}, S.on === 'brush' ? 'Mask brush' : S.on === 'radial' ? 'Radial fade' : 'Fade out'),
     S.on === 'brush'
       ? [
           seg(
@@ -107,7 +108,12 @@ function showBar() {
           slider('Size', S.size, 4, 400, (v) => (S.size = v)),
           slider('Softness', S.soft, 0, 100, (v) => (S.soft = v)),
         ]
-      : h('span', { class: 'muted small' }, 'Drag from where the layer stays to where it fades out.'),
+      : S.on === 'radial'
+        ? [
+            h('span', { class: 'muted small' }, 'Drag from the centre of what stays to where it fades out.'),
+            h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: S.invert, onchange: (e) => (S.invert = e.target.checked) }), 'Fade the middle instead'),
+          ]
+        : h('span', { class: 'muted small' }, 'Drag from where the layer stays to where it fades out.'),
     (undoBtn = h('button', { class: 'btn small', onclick: undoStep, title: 'Ctrl+Z', disabled: !S.undo.length }, 'Undo')),
     h('button', { class: 'btn small', onclick: () => finish(false) }, 'Cancel'),
     h('button', { class: 'btn primary small', onclick: () => finish(true) }, 'Done'),
@@ -131,6 +137,7 @@ function undoStep() {
   x.drawImage(last, 0, 0);
   x.globalCompositeOperation = 'source-over';
   S.obj.dirty = true;
+  bumpRender();
   canvas.requestRenderAll();
 }
 
@@ -173,9 +180,19 @@ function fadeTo(p) {
   x.drawImage(S.drag.start, 0, 0);
   toMask(x);
   const a = S.drag.a;
-  const g = x.createLinearGradient(a.x, a.y, p.x, p.y);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
+  let g;
+  if (S.on === 'radial') {
+    // Measured in page units, so the circle stays round on a stretched layer.
+    g = x.createRadialGradient(a.x, a.y, 0, a.x, a.y, Math.max(1, Math.hypot(p.x - a.x, p.y - a.y)));
+    const inside = S.invert ? 0 : 1;
+    g.addColorStop(0, `rgba(255,255,255,${inside})`);
+    g.addColorStop(0.35, `rgba(255,255,255,${inside})`);
+    g.addColorStop(1, `rgba(255,255,255,${1 - inside})`);
+  } else {
+    g = x.createLinearGradient(a.x, a.y, p.x, p.y);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+  }
   x.globalCompositeOperation = 'destination-in';
   x.fillStyle = g;
   // A rectangle far bigger than the page so the gradient covers the whole mask.
@@ -186,12 +203,17 @@ function fadeTo(p) {
 
 function paintCursor(x, sx, sy, dpr) {
   if (!S.on) return;
-  if (S.on === 'fade' && S.drag?.b) {
+  if ((S.on === 'fade' || S.on === 'radial') && S.drag?.b) {
     x.strokeStyle = '#ffffff';
     x.lineWidth = 2 * dpr;
     x.beginPath();
-    x.moveTo(sx(S.drag.a.x), sy(S.drag.a.y));
-    x.lineTo(sx(S.drag.b.x), sy(S.drag.b.y));
+    if (S.on === 'radial') {
+      const r = Math.hypot(sx(S.drag.b.x) - sx(S.drag.a.x), sy(S.drag.b.y) - sy(S.drag.a.y));
+      x.arc(sx(S.drag.a.x), sy(S.drag.a.y), r, 0, Math.PI * 2);
+    } else {
+      x.moveTo(sx(S.drag.a.x), sy(S.drag.a.y));
+      x.lineTo(sx(S.drag.b.x), sy(S.drag.b.y));
+    }
     x.stroke();
     x.strokeStyle = '#101c2b';
     x.setLineDash([4 * dpr, 4 * dpr]);
@@ -248,6 +270,7 @@ export function initMaskPaint() {
       dab(p);
     } else S.drag = { a: p, b: p, start: copyOf(S.work) };
     S.obj.dirty = true;
+    bumpRender();
     canvas.requestRenderAll();
   });
   canvas.on('mouse:move', (opt) => {
@@ -261,6 +284,7 @@ export function initMaskPaint() {
         fadeTo(p);
       }
       S.obj.dirty = true;
+      bumpRender();
       canvas.requestRenderAll();
     } else refreshOverlay();
   });

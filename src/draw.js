@@ -1,7 +1,6 @@
 import { canvas, fabric, decorate } from './canvas.js';
 import { uid } from './state.js';
-import { brandColors } from './brand.js';
-import { h, rangeField, toHex } from './ui.js';
+import { h, toHex } from './ui.js';
 
 // Drawing with brushes. Each stroke becomes its own object on the page and can
 // be moved, recoloured or deleted like any shape.
@@ -13,7 +12,7 @@ export const BRUSHES = [
   { id: 'spray', label: 'Spray', size: 40, opacity: 100 },
 ];
 
-const S = { brush: 'pen', color: '#111111', size: 6, opacity: 100, on: false };
+const S = { brush: 'pen', color: '#000000', size: 6, opacity: 100, on: false };
 
 const rgba = (hex, a) => {
   const n = parseInt(toHex(hex).slice(1), 16);
@@ -59,66 +58,46 @@ export function setDrawing(on) {
 
 export const isDrawing = () => S.on;
 
-export function drawPanel(el) {
-  const pick = h('input', { type: 'color', class: 'color', value: S.color });
-  pick.addEventListener('input', () => {
-    S.color = pick.value;
-    makeBrush();
-  });
+/** The brush settings in the options bar. The colour is the foreground colour. */
+export function drawOptions(el) {
+  el.innerHTML = '';
+  const num = (label, value, min, max, set, suffix) =>
+    h(
+      'label',
+      { class: 'opt-num' },
+      h('span', { class: 'label' }, label),
+      h('input', { class: 'field num', type: 'number', min, max, value, oninput: (e) => (set(Math.max(min, Math.min(max, +e.target.value || min))), makeBrush()) }),
+      h('span', { class: 'suffix' }, suffix),
+    );
   el.append(
     h(
       'div',
-      { class: 'panel-block' },
-      h('p', { class: 'muted small' }, 'Draw on the page with the mouse or a pen tablet. Each stroke is its own object, so select it to move or delete it.'),
-      h(
-        'div',
-        { class: 'tile-grid tight' },
-        BRUSHES.map((b) =>
-          h(
-            'button',
-            {
-              class: 'tile' + (S.brush === b.id ? ' on' : ''),
-              onclick: () => {
-                S.brush = b.id;
-                S.size = b.size;
-                S.opacity = b.opacity;
-                makeBrush();
-                el.innerHTML = '';
-                drawPanel(el);
-              },
-            },
-            h('span', { html: brushIcon(b.id) }),
-            h('span', {}, b.label),
-          ),
-        ),
-      ),
-      h('div', { class: 'row' }, h('span', { class: 'label grow' }, 'Colour'), pick),
-      h(
-        'div',
-        { class: 'swatches small' },
-        [...brandColors(), '#111111', '#ffffff', '#e63946', '#f4a261', '#2a9d8f'].map((c) =>
-          h('button', {
-            class: 'swatch small',
-            title: c,
-            style: { background: c },
+      { class: 'seg small' },
+      BRUSHES.map((b) =>
+        h(
+          'button',
+          {
+            class: S.brush === b.id ? 'on' : '',
             onclick: () => {
-              S.color = c;
-              pick.value = toHex(c);
+              S.brush = b.id;
+              S.size = b.size;
+              S.opacity = b.opacity;
               makeBrush();
+              drawOptions(el);
             },
-          }),
+          },
+          b.label,
         ),
       ),
-      rangeField('Size', S.size, (v) => ((S.size = v), makeBrush()), { min: 1, max: 200, suffix: ' px' }),
-      rangeField('Opacity', S.opacity, (v) => ((S.opacity = v), makeBrush()), { min: 5, max: 100, suffix: '%' }),
     ),
+    num('Size', S.size, 1, 400, (v) => (S.size = v), 'px'),
+    num('Opacity', S.opacity, 5, 100, (v) => (S.opacity = v), '%'),
+    h('span', { class: 'opt-hint muted' }, 'Draws in the foreground colour. Each stroke is its own layer.'),
   );
 }
 
-function brushIcon(id) {
-  const svg = (d) => `<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-  if (id === 'pen') return svg('<path d="M4 20c4-1 5-6 9-8s5-6 7-8"/>');
-  if (id === 'marker') return svg('<path d="M4 18c4-2 7-8 16-10" stroke-width="4"/>');
-  if (id === 'highlighter') return svg('<path d="M3 15h18" stroke-width="7" stroke-opacity=".45" stroke-linecap="square"/>');
-  return svg('<circle cx="8" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="7" r="1" fill="currentColor"/><circle cx="15" cy="11" r="1" fill="currentColor"/><circle cx="10" cy="13" r="1" fill="currentColor"/><circle cx="13" cy="15" r="1" fill="currentColor"/><circle cx="17" cy="8" r="1" fill="currentColor"/><circle cx="7" cy="15" r="1" fill="currentColor"/>');
+/** Follows the foreground colour. */
+export function setDrawColor(c) {
+  S.color = c;
+  if (S.on) makeBrush();
 }

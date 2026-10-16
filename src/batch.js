@@ -1,16 +1,19 @@
-import { state, currentPage } from './state.js';
-import { syncCurrentPage } from './pages.js';
+import { state, currentPage, uid } from './state.js';
+import { fabric } from './canvas.js';
+import { syncCurrentPage, addPage } from './pages.js';
 import { pageImage, renderPage, MIME } from './exporter.js';
 import { allLogos } from './brand.js';
 import { framedImage, isPhoto, isEmptyFrame } from './frames.js';
 import { applyCurve } from './objects.js';
-import { pickFiles, pickFolder, writeFile, joinPath, baseName, dataReadJson } from './platform.js';
+import { pickFiles, pickFolder, writeFile, joinPath, baseName, dataReadJson, isDesktop, readPath } from './platform.js';
 import { registerBytes, typeFor } from './assets.js';
 import { h, modal, toast } from './ui.js';
 
 // Batch export: one image per row from the current page, with chosen text and
 // photos swapped per row. Useful for a price list, a set of product posts, or
-// one post per treatment.
+// one post per treatment. The rows can come from a spreadsheet saved as CSV,
+// matched to layers by name or to {{Column}} placeholders in the text, the
+// way DesignCraft's data merge works.
 
 const safe = (s) => String(s).replace(/[\\/:*?"<>|]/g, '_').trim();
 
@@ -25,6 +28,7 @@ export async function batchDialog() {
       label: isTextJson(o) ? `${o.name || 'Text'}: ${o.text.split('\n')[0].slice(0, 24)}` : o.name || 'Photo',
       value: isTextJson(o) ? o.text : null,
     }));
+  const placeholders = [...new Set(page.objects.filter(isTextJson).flatMap((o) => [...o.text.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((m) => m[1])))];
   if (!candidates.length) {
     await modal('Batch export', h('p', {}, 'Add text or a photo to the page first. Batch export changes them for each row.'));
     return;
@@ -51,8 +55,9 @@ export async function batchDialog() {
       h(
         'p',
         { class: 'muted' },
-        'Tick the text and photos that change. Each row in the table becomes one image, and anything left empty keeps what the page has.',
+        'Tick the text and photos that change, or load a spreadsheet whose column names match the layer names. Each row becomes one image, and anything left empty keeps what the page has.',
       ),
+      h('div', { class: 'row' }, h('button', { class: 'btn small', title: 'A CSV file saved from Excel or Google Sheets, with column names in the first row', onclick: loadCsv }, 'Load spreadsheet (CSV)'), S.csv ? h('span', { class: 'muted small' }, `Columns: ${S.csv.headers.join(', ')}`) : null),
       h(
         'div',
         { class: 'batch-fields' },
@@ -74,12 +79,14 @@ export async function batchDialog() {
         ),
       ),
     );
-    if (!fields.length) return;
+    if (placeholders.length)
+      body.append(h('p', { class: 'muted small' }, `The text uses ${placeholders.map((x) => `{{${x}}}`).join(', ')}. A spreadsheet column with the same name fills each one.`));
+    if (!fields.length && !S.csv) return;
 
     const table = h(
       'table',
       { class: 'batch-table' },
-      h('thead', {}, h('tr', {}, h('th', {}, '#'), fields.map((f) => h('th', {}, f.label.split(':')[0])), h('th', {}, 'File name'), h('th', {}, ''))),
+      h('thead', {}, h('tr', {}, h('th', {}, '#'), placeholders.filter((x) => S.csv?.headers.includes(x)).map((x) => h('th', {}, `{{${x}}}`)), fields.map((f) => h('th', {}, f.label.split(':')[0])), h('th', {}, 'File name'), h('th', {}, ''))),
       h(
         'tbody',
         {},
@@ -88,6 +95,7 @@ export async function batchDialog() {
             'tr',
             { class: i === S.previewRow ? 'on' : '', onclick: () => ((S.previewRow = i), draw(), showPreview()) },
             h('td', { class: 'muted' }, String(i + 1)),
+            placeholders.filter((x) => S.csv?.headers.includes(x)).map((x) => h('td', { class: 'small' }, r.cols?.[x] ?? '')),
             fields.map((f) =>
               h(
                 'td',
@@ -195,7 +203,7 @@ export async function batchDialog() {
       ),
       wm
         ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.watermark, onchange: (e) => (S.watermark = e.target.checked) }), 'Watermark, as set in Export')
-        : null,
+        : '',
       h(
         'div',
         { class: 'field-row' },
@@ -244,10 +252,94 @@ export async function batchDialog() {
     showPreview();
   }
 
+  async function loadCsv() {
+    const files = await pickFiles({ extensions: ['csv', 'tsv', 'txt'], label: 'Spreadsheet (CSV)' });
+    if (!files?.length) return;
+    const table = parseCsv(new TextDecoder().decode(files[0].bytes));
+    if (table.length < 2) return toast('The file needs a row of column names and at least one row below it.', { error: true });
+    const headers = table[0].map((x) => x.trim());
+    const rows = table.slice(1).filter((r) => r.some((c) => c.trim()));
+    const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Columns match layers by name, or a text layer by its first words.
+    const match = new Map();
+    for (const c of candidates) {
+      const layer = page.objects.find((o) => o.uid === c.uid);
+      // Text with {{Column}} placeholders is filled in place, not replaced whole.
+      if (c.kind === 'text' && /\{\{/.test(c.value || '')) continue;
+      const keys = [norm(layer?.name || ''), norm(c.label.split(':')[0]), norm((c.value || '').split('\n')[0])];
+      const col = headers.findIndex((hd) => keys.includes(norm(hd)) && norm(hd));
+      if (col >= 0) match.set(c.uid, col);
+    }
+    const used = new Set(match.values());
+    const nameCol = ['filename', 'file', 'output', 'name'].map((k) => headers.findIndex((hd, i) => norm(hd) === k && !used.has(i))).find((i) => i >= 0) ?? -1;
+    S.fields = [...new Set([...S.fields, ...match.keys()])];
+    // Photos named in the sheet: read them by path on the desktop, or pick them.
+    const photoCols = [...match.entries()].filter(([u]) => candidates.find((c) => c.uid === u).kind === 'photo');
+    const picked = new Map();
+    if (photoCols.length) {
+      const wanted = new Set(rows.flatMap((r) => photoCols.map(([, col]) => (r[col] || '').trim())).filter(Boolean));
+      if (isDesktop) {
+        for (const w of wanted) {
+          try {
+            picked.set(w, registerBytes(await readPath(w), typeFor(w)));
+          } catch {
+            /* not a full path; picked below */
+          }
+        }
+      }
+      if ([...wanted].some((w) => !picked.has(w))) {
+        toast('Pick the photos named in the spreadsheet.');
+        const imgs = await pickFiles({ extensions: ['png', 'jpg', 'jpeg', 'webp'], multiple: true, label: 'Photos for the spreadsheet' });
+        for (const f of imgs || []) picked.set(f.name.toLowerCase(), registerBytes(f.bytes, typeFor(f.name)));
+      }
+    }
+    S.csv = { headers };
+    S.rows = rows.map((r) => {
+      const values = {};
+      for (const [u, col] of match) {
+        const v = (r[col] ?? '').trim();
+        if (!v) continue;
+        if (candidates.find((c) => c.uid === u).kind === 'photo') {
+          const url = picked.get(v) || picked.get(baseName(v).toLowerCase());
+          if (url) values[u] = url;
+        } else values[u] = v;
+      }
+      const cols = Object.fromEntries(headers.map((hd, k) => [hd, (r[k] ?? '').trim()]));
+      return { values, cols, name: nameCol >= 0 ? (r[nameCol] || '').trim() : '' };
+    });
+    S.previewRow = 0;
+    const missing = headers.filter((hd, k) => !used.has(k) && k !== nameCol && !placeholders.includes(hd));
+    toast(`${S.rows.length} rows loaded.${missing.length ? ` Not used: ${missing.join(', ')}.` : ''}`);
+    draw();
+    showPreview();
+  }
+
+  async function addRowsAsPages() {
+    const note = toast('Adding pages', { sticky: true });
+    try {
+      let at = state.pageIndex + 1;
+      for (let i = 0; i < S.rows.length; i++) {
+        note.text(`Adding page ${i + 1} of ${S.rows.length}`);
+        const objects = await transformFor(S.rows[i])(await fabric.util.enlivenObjects(page.objects));
+        await addPage({ id: uid(), background: page.background, objects: objects.map((o) => o.toObject()), thumb: null }, at++);
+      }
+      note.done();
+      toast(`Added ${S.rows.length} pages. Export with All pages to save them.`);
+    } catch (e) {
+      note.done();
+      toast(`The pages could not be added: ${e.message || e}`, { error: true });
+    }
+  }
+
   const transformFor = (row) => async (objects) => {
     const out = [...objects];
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
+      if (o.type === 'textbox' && row.cols && /\{\{/.test(o.text)) {
+        o.set({ text: o.text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (m, k) => row.cols[k] ?? row.cols[Object.keys(row.cols).find((x) => x.toLowerCase() === k.toLowerCase())] ?? m) });
+        o.initDimensions();
+        if (o.curve) applyCurve(o);
+      }
       const v = row.values[o.uid];
       if (v == null || v === '') continue;
       if (o.type === 'textbox') {
@@ -275,11 +367,13 @@ export async function batchDialog() {
 
   draw();
   showPreview();
-  const go = await modal('Batch export', body, [
+  const go = await modal('Batch export and spreadsheet posts', body, [
     { label: 'Cancel', value: false },
+    { label: 'Add as pages', value: 'pages' },
     { label: 'Export all', value: true, primary: true },
   ], { wide: true });
-  if (!go || !S.fields.length) return;
+  if (!go || (!S.fields.length && !S.csv)) return;
+  if (go === 'pages') return addRowsAsPages();
 
   const dir = await pickFolder();
   if (dir == null) return;
@@ -306,3 +400,39 @@ export async function batchDialog() {
 
 const isTextJson = (o) => String(o.type).toLowerCase() === 'textbox';
 const isPhotoJson = (o) => String(o.type).toLowerCase() === 'image' || !!o.isFrame;
+
+/** Reads CSV or tab-separated text into rows of cells. Handles quotes and line breaks inside quotes. */
+export function parseCsv(text) {
+  text = text.replace(/^\uFEFF/, '');
+  const firstLine = text.split(/\r?\n/)[0] || '';
+  const sep = (firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length ? '\t' : (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) {
+      row.push(cell);
+      cell = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else cell += ch;
+  }
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}

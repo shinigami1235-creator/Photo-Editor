@@ -1,6 +1,6 @@
 {
   "name": "photo-editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -19,13 +19,14 @@
     "lcms-wasm": "^1.0.5",
     "libraw-wasm": "^1.6.0",
     "onnxruntime-web": "^1.30.0",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "polygon-clipping": "^0.15.7"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.0",
-    "vite": "^8.3.1",
     "lucide-static": "^1.48.0",
-    "simple-icons": "^16.33.0"
+    "simple-icons": "^16.33.0",
+    "vite": "^8.3.1"
   },
   "private": true,
   "type": "module"

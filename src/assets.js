@@ -16,15 +16,15 @@ export const assetIdFor = (url) => byUrl.get(url)?.id ?? null;
 export const isAssetUrl = (s) => typeof s === 'string' && byUrl.has(s);
 
 export function extFor(type) {
-  return { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' }[type] || 'bin';
+  return { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg', 'application/x-cube': 'cube' }[type] || 'bin';
 }
 
 export function typeFor(name) {
   const ext = name.split('.').pop().toLowerCase();
-  return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' }[ext] || '';
+  return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', cube: 'application/x-cube' }[ext] || '';
 }
 
-export const isImageName = (name) => !!typeFor(name);
+export const isImageName = (name) => typeFor(name).startsWith('image/');
 
 /** Loads a URL into an HTMLImageElement. */
 export function loadImage(url) {
