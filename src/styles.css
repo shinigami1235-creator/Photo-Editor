@@ -658,8 +658,9 @@ input.color::-webkit-color-swatch { border: 0; border-radius: 4px; }
   width: 100%;
 }
 .section-toggle .section-title { margin: 0; }
-.chev { color: var(--faint); font-size: 16px; line-height: 1; transition: transform 0.15s; }
+.chev { display: inline-block; width: 14px; text-align: center; color: var(--faint); font-size: 16px; line-height: 1; transition: transform 0.15s; }
 .chev.open { transform: rotate(90deg); }
+.section-toggle { min-height: 22px; overflow: hidden; }
 .stack.gap { gap: 8px; }
 .section-title.sub { margin-top: 6px; }
 .look-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

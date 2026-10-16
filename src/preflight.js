@@ -77,7 +77,7 @@ async function checkDialog() {
             ),
           ),
         )
-      : h('p', {}, 'Nothing to fix. The photos are sharp enough, frames are filled and the text stays on the page.'),
+      : h('p', {}, 'Nothing to fix.'),
   );
   await modal('Check design', body, [{ label: 'Close', value: true, primary: true }], { wide: true });
 }
