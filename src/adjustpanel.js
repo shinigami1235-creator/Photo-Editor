@@ -1,6 +1,6 @@
 import { canvas } from './canvas.js';
 import { record } from './history.js';
-import { emit } from './state.js';
+import { emit, on } from './state.js';
 import { h, section, row, rangeField, toHex, toast } from './ui.js';
 import { NEUTRAL, LOOKS, BANDS, adjustOf, adjustPixels, lookSettings, settingsOf, curveTable, autoSettings, bumpFilterRev } from './adjust.js';
 import { BUILT_IN } from './luts.js';
@@ -240,10 +240,19 @@ export function drawDevelop(host, target, rerender) {
   };
   const neutral = JSON.stringify(s) === JSON.stringify(settingsOf(null));
 
+  // The histogram redraws after each finished slider move.
+  let hist = histogramView(target);
+  const stop = on('adjusted', () => {
+    if (!hist.isConnected) return stop();
+    const next = histogramView(target);
+    hist.replaceWith(next);
+    hist = next;
+  });
+
   host.append(
     section(
       'Adjust',
-      histogramView(target),
+      hist,
       row(
         h('button', { class: 'btn small grow', title: 'Shift+Ctrl+L sets the light, Shift+Ctrl+B the colour', onclick: () => (target.apply(autoSettings(target.source()), true), rerender()) }, 'Auto'),
         h('button', { class: 'btn small', title: 'Shift+Ctrl+C', onclick: () => copySettings(target) }, 'Copy'),

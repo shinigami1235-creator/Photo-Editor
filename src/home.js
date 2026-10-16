@@ -1,4 +1,4 @@
-import { SIZE_PRESETS } from './state.js';
+import { SIZE_PRESETS, on } from './state.js';
 import { isDesktop, dataReadJson, dataWriteJson, baseName } from './platform.js';
 import { h, ICONS, appLogo } from './ui.js';
 
@@ -32,7 +32,10 @@ export async function showHome(actions, { canClose = true } = {}) {
   const close = () => {
     back.remove();
     document.removeEventListener('keydown', key, true);
+    stopDoc();
   };
+  // A design opened another way (Ctrl+O, a dropped file) takes the start screen's place.
+  const stopDoc = on('doc', () => close());
   const key = (e) => {
     if (e.key === 'Escape' && canClose) {
       e.stopPropagation();

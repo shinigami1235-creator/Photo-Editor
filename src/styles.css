@@ -454,6 +454,8 @@ body.drawer-open .drawer { display: flex; }
   box-shadow: 0 8px 24px var(--shadow);
 }
 .crop-bar.show { display: flex; }
+/* Centred bars shrink to half the workspace otherwise and wrap their labels. */
+.crop-bar { width: max-content; max-width: calc(100% - 24px); }
 
 /* ---------- Pages ---------- */
 .pages {
@@ -769,7 +771,7 @@ button.layer-chip:hover { color: var(--text); border-color: var(--accent); }
 /* ---------- Mask painting ---------- */
 .mask-bar { gap: 10px; padding: 6px 8px 6px 14px; }
 .mask-bar .seg { width: auto; flex: none; }
-.mask-bar > .muted, .mask-bar > span { white-space: nowrap; }
+.mask-bar > .muted, .mask-bar > span, .mask-bar > strong, .mask-bar > label { white-space: nowrap; }
 .mp-slider { display: flex; align-items: center; gap: 6px; }
 .mp-slider input { width: 90px; }
 .mp-slider .range-value { min-width: 26px; font-size: 12px; color: var(--muted); }
