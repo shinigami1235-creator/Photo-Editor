@@ -77,7 +77,12 @@ export function prompt(title, label, value = '') {
 let toastEl = null;
 let toastHook = null;
 /** Lets the status bar show the latest message too. */
-export const setToastHook = (fn) => (toastHook = fn);
+let lastHookText = '';
+export const setToastHook = (fn) =>
+  (toastHook = (text) => {
+    lastHookText = text;
+    fn(text);
+  });
 /** A message in the bottom corner. Returns an updater; call .done() to remove it. */
 export function toast(text, { sticky = false, error = false } = {}) {
   if (!toastEl) {
@@ -89,7 +94,11 @@ export function toast(text, { sticky = false, error = false } = {}) {
   const label = h('span', {}, text);
   const t = h('div', { class: 'toast' + (error ? ' error' : '') }, label, bar);
   toastEl.appendChild(t);
-  const done = () => t.remove();
+  const done = () => {
+    t.remove();
+    // A finished progress message leaves the status bar instead of staying there.
+    if (sticky && lastHookText === label.textContent) toastHook?.('');
+  };
   if (!sticky) setTimeout(done, error ? 6000 : 2800);
   return {
     text: (s) => {
