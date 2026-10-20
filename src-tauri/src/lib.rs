@@ -5,6 +5,8 @@ use std::path::{Component, Path, PathBuf};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Emitter, Manager};
 
+mod bridge;
+
 const MODEL_URL: &str =
     "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx";
 const MODEL_FILE: &str = "models/isnet-general-use.onnx";
@@ -103,6 +105,11 @@ fn data_delete(app: AppHandle, rel: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn file_exists(path: String) -> bool {
+    Path::new(&path).exists()
+}
+
+#[tauri::command]
 fn list_fonts() -> Vec<String> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
@@ -161,7 +168,19 @@ async fn model_download(app: AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(bridge::Bridge::default())
+        .setup(|app| {
+            // A connection file left by a previous run points at a closed port.
+            if let Ok(dir) = app.path().app_data_dir() {
+                let _ = fs::remove_file(dir.join("mcp.json"));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            file_exists,
+            bridge::mcp_start,
+            bridge::mcp_stop,
+            bridge::mcp_reply,
             read_file,
             write_file,
             data_read,

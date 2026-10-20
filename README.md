@@ -45,6 +45,10 @@ Shape combining uses polygon-clipping (MIT).
 - **WebP on a Mac:** Safari cannot write WebP, so the app uses the jSquash WebP encoder (Apache 2.0) there.
 - **Interface fonts:** Cinzel and IBM Plex Sans (both OFL) through Fontsource.
 
+## Claude connector
+
+`mcp/photo-editor-mcp.mjs` is an MCP server with no packages, started by the Claude desktop app with `node`. It reads `mcp.json` from the app data folder for the port and token, then sends each tool call to `POST http://127.0.0.1:<port>/rpc`. `src-tauri/src/bridge.rs` runs that server only while Help > Let Claude control this app is ticked. It binds to 127.0.0.1, makes a new random token on each start, refuses requests with a wrong token or an `Origin` header, and hands each request to the editor window as an `mcp-request` event. `src/mcp.js` runs the tool and answers through `mcp_reply`. The setup steps are in GUIDE.md under Letting Claude edit for you.
+
 ## Checking the text
 
 `node scripts/lint-strings.mjs src/*.js README.md GUIDE.md` flags the writing shapes I don't want in the app or the docs: dashes, "That is" glosses, split contrasts, filler words and reassurance clauses.
@@ -54,6 +58,7 @@ Shape combining uses polygon-clipping (MIT).
 | File | Contents |
 | --- | --- |
 | `src/main.js` | Layout, library panels, files, export, clipboard, the core commands, keys, autosave |
+| `src/mcp.js` | The Claude connector's tools and the Help menu switch |
 | `src/menus.js` | The menu bar, in Photoshop's order |
 | `src/commands.js` | Command list, menus, shortcuts and command search |
 | `src/tools.js` | Tool column, options bar, colours, what each tool does on the page |
@@ -102,3 +107,5 @@ Shape combining uses polygon-clipping (MIT).
 | `src/home.js` | Start screen, recent designs |
 | `src/platform.js` | File access through the Rust side |
 | `src-tauri/src/lib.rs` | Rust commands for files, fonts and the model download |
+| `src-tauri/src/bridge.rs` | Local server for the Claude connector |
+| `mcp/photo-editor-mcp.mjs` | The Claude connector |

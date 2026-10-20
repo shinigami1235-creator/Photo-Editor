@@ -143,5 +143,5 @@ export const MENUS = ({ savedSelections }) => [
       'window.lib.brand',
     ],
   },
-  { name: 'Help', items: ['help.search', 'edit.shortcuts', '-', 'help.about'] },
+  { name: 'Help', items: ['help.search', 'edit.shortcuts', '-', 'help.mcp', '-', 'help.about'] },
 ];

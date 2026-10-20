@@ -84,6 +84,7 @@ import { restoreBackground } from './bgremove.js';
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { MENUS } from './menus.js';
+import { init as initClaude } from './mcp.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -137,6 +138,7 @@ function buildLayout() {
         h('span', { class: 'status-item', id: 'status-layers' }),
         h('span', { class: 'status-msg', id: 'status-msg' }),
         h('span', { class: 'grow' }),
+        h('button', { class: 'claude-chip', id: 'claude-chip', hidden: true, title: 'Claude can control this app. Click to turn it off.', onclick: () => runCommand('help.mcp') }, 'Claude control on'),
         h('button', { class: 'icon-btn tiny', id: 'snap-btn', title: 'Snapping (Shift+Ctrl+;)', html: ICONS.magnet, onclick: () => runCommand('view.snap') }),
         h('button', { class: 'icon-btn tiny', id: 'rulers-btn', title: 'Rulers (Ctrl+R)', html: ICONS.ruler, onclick: () => toggleRulers() }),
         h('button', { class: 'icon-btn tiny', title: 'Fit on screen (Ctrl+0)', html: ICONS.fit, onclick: fitToScreen }),
@@ -1461,6 +1463,7 @@ async function start() {
   const mods = await Promise.all([import('./adjustlayers.js'), import('./layerstyles.js'), import('./transform.js'), import('./shapeops.js'), import('./preflight.js'), import('./develop-ui.js')].map((p) => p.catch((e) => (console.warn(e), null))));
   for (const m of mods) m?.init?.({ adjustmentsEl: adjEl });
 
+  await initClaude({ openBytes, pictureUrl, rememberRecent });
   buildMenuBar($('#menus'), MENUS({ savedSelections: savedSelectionItems }));
   buildToolColumn($('#tools'), LIBRARIES.map((l) => ({ ...l, open: () => openLibrary(l.id) })));
   buildOptionsBar($('#options'));

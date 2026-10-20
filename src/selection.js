@@ -683,7 +683,11 @@ let subjectBusy = false;
  * Selects the main subject of the layer (or of the whole page with All layers
  * picked) with the background model.
  */
+/** Why the last Select subject failed, for the Claude connector. */
+export let subjectError = '';
+
 export async function selectSubject(op = 'new', layer = undefined) {
+  subjectError = '';
   if (subjectBusy || !state.doc) return false;
   const t = layer === undefined ? targetLayer() : layer;
   const objs = t ? [t] : designObjects().filter((o) => o.visible);
@@ -724,7 +728,8 @@ export async function selectSubject(op = 'new', layer = undefined) {
     setMask(combine(shape, op));
     return true;
   } catch (e) {
-    toast(`The subject could not be found: ${e.message}`, { error: true });
+    subjectError = e.message || String(e);
+    toast(`The subject could not be found: ${subjectError}`, { error: true });
     return false;
   } finally {
     note.done();

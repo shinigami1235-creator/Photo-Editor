@@ -348,6 +348,45 @@ Save and Save as write a design file (.zip) with the photos, masks, colour looku
 
 The History panel lists every step on the current page. Click a step to go back to it.
 
+## Letting Claude edit for you
+
+Claude can work Photo Editor on your computer while you describe what you want in a Claude chat, such as "open the Sognare bar photo, remove the background, put it on navy and add the price in gold". It uses the same tools you do: layers, adjustments, Remove background, Text behind subject, Upscale, the menu commands, Save and Export. It looks at a preview after each change, and you can watch the edit happen and take over at any time.
+
+### Switching it on
+
+1. Open Photo Editor.
+2. Tick Help > Let Claude control this app. A gold "Claude control on" chip shows in the status bar.
+3. Click the chip, or untick the menu item, to switch it off. The setting is remembered for the next start.
+
+Claude can only reach Photo Editor while this is ticked, and only from your own computer.
+
+### Connecting it to the Claude app (once)
+
+The connector is `mcp\photo-editor-mcp.mjs` in the Photo Editing folder. It needs Node.js, which the editor already uses.
+
+1. Open the Claude desktop app and go to Settings > Developer > Edit Config. This opens the folder with `claude_desktop_config.json`.
+2. Copy `claude_desktop_config.json` to your desktop as a backup before changing it, since a typo in it stops every connector from loading (Blender, Godot and Playwright included).
+3. Open it in Notepad. Inside `"mcpServers": {`, add this entry after the last one, with a comma after the entry before it:
+
+   ```json
+   "photo-editor": {
+     "command": "node",
+     "args": ["C:\\Users\\User\\Documents\\Coding Projects\\Photo Editing\\mcp\\photo-editor-mcp.mjs"]
+   }
+   ```
+
+4. Save, then quit the Claude app completely (right-click its icon by the clock > Quit) and open it again.
+5. In a chat, ask Claude what Photo Editor has open. It answers with the design's name and size.
+
+On a Mac the path is the folder where you keep Photo Editing, such as `/Users/you/Documents/Photo Editing/mcp/photo-editor-mcp.mjs`, and the config is under Claude > Settings > Developer as well.
+
+### What Claude will and will not do
+
+- It opens files, saves designs and exports pictures only at the paths it names in the chat.
+- It will not replace a file that already exists or close a design with unsaved changes unless you tell it to.
+- File pickers, batch export, Make other sizes, adding fonts, retouch painting and the cut-out editor stay with you. Claude asks you to do those.
+- When Photo Editor is closed or the switch is off, Claude says so and stops.
+
 ## Shortcuts
 
 Help > Keyboard shortcuts (?) lists every shortcut from the menus. The main ones:
@@ -389,6 +428,7 @@ Help > Keyboard shortcuts (?) lists every shortcut from the menus. The main ones
 | --- | --- | --- |
 | Brand kits, fonts, templates, text styles, recent designs, autosave and settings | `%APPDATA%\com.cygnussolutions.photoeditor` | `~/Library/Application Support/com.cygnussolutions.photoeditor` |
 | Background model (179 MB) | `models` inside the same folder | `models` inside the same folder |
+| Claude connection (port and token, while switched on) | `mcp.json` inside the same folder | `mcp.json` inside the same folder |
 | Designs | wherever you save them, as .zip files | wherever you save them, as .zip files |
 
 Send Claude a screenshot if anything in this guide does not match what you see.
