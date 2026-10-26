@@ -70,5 +70,31 @@ export function setLabelOpacity(v) {
   canvas.requestRenderAll();
 }
 
+/**
+ * Resizes a label or tag to `pct` percent of its made size, shrinking toward
+ * its corner: labels keep their bottom edge, and right-hand ones their right.
+ */
+export function setBadgeSize(o, pct) {
+  const k = Math.max(20, Math.min(200, +pct || 100)) / 100;
+  const w0 = o.getScaledWidth();
+  const h0 = o.getScaledHeight();
+  const right = o.left + w0;
+  const bottom = o.top + h0;
+  o.set({ scaleX: k, scaleY: k });
+  if (o.badge.anchor === 'right') o.set({ left: right - o.getScaledWidth() });
+  if (isLabel(o)) o.set({ top: bottom - o.getScaledHeight() });
+  o.setCoords();
+}
+
+export const badgeSize = (o) => Math.round((o?.scaleX ?? 1) * 100);
+
+/** Sets the size of every label on the page, as a percent of the made size. */
+export function setLabelSize(pct) {
+  for (const o of pageLabels()) setBadgeSize(o, pct);
+  canvas.requestRenderAll();
+}
+
+export const labelSize = () => badgeSize(pageLabels()[0]);
+
 /** The labels' opacity on this page, 0 to 100. */
 export const labelOpacity = () => Math.round((pageLabels()[0]?.opacity ?? 1) * 100);

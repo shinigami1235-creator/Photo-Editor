@@ -6,7 +6,7 @@ import { newDoc, uid } from './state.js';
 import { record } from './history.js';
 import { openDocument } from './pages.js';
 import { loadImage, registerBlob } from './assets.js';
-import { makeBadge, LABEL_COLORS, TAG_COLORS } from './badge.js';
+import { makeBadge, setBadgeSize, LABEL_COLORS, TAG_COLORS } from './badge.js';
 
 export const LABEL_OPACITY = 0;
 import { detectFaces } from './faces.js';
@@ -124,17 +124,18 @@ function cropToCell(img, cell, { s: s0, ang, anchor, target }, grow) {
 }
 
 /** A label in the bottom corner of a cell. */
-function label(text, cell, anchor, colors, layerOpacity = 1) {
+function label(text, cell, anchor, colors, layerOpacity = 1, sizePct = 100) {
   const size = Math.round(Math.min(cell.w, cell.h) * 0.06);
   const margin = Math.round(Math.min(cell.w, cell.h) * 0.045);
   const g = makeBadge({ text, ...LABEL_COLORS, ...colors, opacity: 0.85, layerOpacity, size, name: `${text} label`, at: { x: anchor === 'right' ? cell.x + cell.w - margin : cell.x + margin, y: 0, anchor } });
   g.set({ top: cell.y + cell.h - g.height - margin });
   g.setCoords();
+  if (sizePct !== 100) setBadgeSize(g, sizePct);
   return g;
 }
 
 /** Lays two loaded pictures into a new design. */
-async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, labelColors, labelOpacity = LABEL_OPACITY, name, gap, background }) {
+async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, labelColors, labelOpacity = LABEL_OPACITY, labelSize = 100, name, gap, background }) {
   const L = LAYOUTS[layout] || LAYOUTS.side;
   const bothFaces = align && bFaces.length > 0 && aFaces.length > 0;
   const doc = newDoc({ name, width: L.width, height: L.height });
@@ -160,8 +161,8 @@ async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names,
     out.push(photo);
   }
   const k = Math.max(0, Math.min(100, +labelOpacity)) / 100;
-  if (labels?.[0]) canvas.add(label(labels[0], cs[0], 'left', labelColors, k));
-  if (labels?.[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right', labelColors, k));
+  if (labels?.[0]) canvas.add(label(labels[0], cs[0], 'left', labelColors, k, labelSize));
+  if (labels?.[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right', labelColors, k, labelSize));
   return { cells: cs, aligned: bothFaces, photos: out, size: [L.width, L.height] };
 }
 
@@ -175,10 +176,10 @@ const finish = () => {
  * Makes the design. before and after are { url, name }. labels can be empty
  * to leave them off. Returns { aligned, faces: [before, after] }.
  */
-export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, labelOpacity, align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, labelOpacity, labelSize, align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
   const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
   const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
-  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: { files: [before.name, after.name] }, layout, labels, labelColors, labelOpacity, name, gap, background });
+  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: { files: [before.name, after.name] }, layout, labels, labelColors, labelOpacity, labelSize, name, gap, background });
   finish();
   return { aligned: r.aligned, faces: [bFaces.length, aFaces.length], photos: r.photos, layout, size: r.size };
 }
@@ -207,10 +208,12 @@ export function goalAmounts(fixes, amount = GOAL_DEFAULT) {
 }
 
 /** The tag on a goal preview that marks it as a simulation, at the top of the goal side. */
-function simTag(cell, text, colors) {
+function simTag(cell, text, colors, sizePct = 100) {
   const size = Math.round(Math.min(cell.w, cell.h) * 0.04);
   const margin = Math.round(Math.min(cell.w, cell.h) * 0.025);
-  return makeBadge({ text, ...TAG_COLORS, ...colors, size, kind: 'tag', name: 'Simulated goal tag', at: { x: cell.x + cell.w - margin, y: cell.y + margin, anchor: 'right' } });
+  const g = makeBadge({ text, ...TAG_COLORS, ...colors, size, kind: 'tag', name: 'Simulated goal tag', at: { x: cell.x + cell.w - margin, y: cell.y + margin, anchor: 'right' } });
+  if (sizePct !== 100) setBadgeSize(g, sizePct);
+  return g;
 }
 
 /**
@@ -219,16 +222,16 @@ function simTag(cell, text, colors) {
  * and glow; amount is 0 to 100 on the goal scale, or `amounts` sets exact fix
  * amounts. The goal photo keeps its fixes editable with Fine tune.
  */
-export async function makeGoalPreview({ photo, fixes = ['slimFace'], amount = GOAL_DEFAULT, amounts = null, layout = 'side', labels = ['Today', 'Goal'], labelColors, labelOpacity, tag = 'Simulated goal', tagColors, name, gap = 8, background = '#ffffff' }) {
+export async function makeGoalPreview({ photo, fixes = ['slimFace'], amount = GOAL_DEFAULT, amounts = null, layout = 'side', labels = ['Today', 'Goal'], labelColors, labelOpacity, labelSize, tag = 'Simulated goal', tagColors, tagSize = 100, name, gap = 8, background = '#ffffff' }) {
   const { quickFix } = await import('./quickfix.js');
   const settings = { ...goalAmounts(fixes, amount), ...(amounts || {}) };
   const img = await loadImage(photo.url);
   // A body goal shows the whole photo, since zooming to the face hides the body.
   const faces = await detectFaces(img, { key: photo.url });
-  const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Today', 'Goal'] }, layout, labels, labelColors, labelOpacity, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
+  const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Today', 'Goal'] }, layout, labels, labelColors, labelOpacity, labelSize, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
   const goal = r.photos[1];
   await quickFix(goal, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
-  canvas.add(simTag(r.cells[1], tag || 'Simulated goal', tagColors));
+  canvas.add(simTag(r.cells[1], tag || 'Simulated goal', tagColors, tagSize));
   finish();
   return { faces: faces.length, fixes, amounts: settings, goal_layer: goal.uid, layout, size: r.size };
 }
@@ -241,12 +244,12 @@ const SAVED = 'settings/beforeafter.json';
 async function remembered() {
   const { dataReadJson } = await import('./platform.js');
   const d = await dataReadJson(SAVED, {});
-  return { labelColors: { ...LABEL_COLORS, ...d.labelColors }, tagColors: { ...TAG_COLORS, ...d.tagColors }, showLabels: d.showLabels !== false, labelOpacity: d.labelOpacity ?? LABEL_OPACITY };
+  return { labelColors: { ...LABEL_COLORS, ...d.labelColors }, tagColors: { ...TAG_COLORS, ...d.tagColors }, showLabels: d.showLabels !== false, labelOpacity: d.labelOpacity ?? LABEL_OPACITY, labelSize: d.labelSize ?? 100, tagSize: d.tagSize ?? 100 };
 }
 
 async function remember(S) {
   const { dataWriteJson } = await import('./platform.js');
-  await dataWriteJson(SAVED, { labelColors: S.labelColors, tagColors: S.tagColors, showLabels: S.showLabels, labelOpacity: S.labelOpacity });
+  await dataWriteJson(SAVED, { labelColors: S.labelColors, tagColors: S.tagColors, showLabels: S.showLabels, labelOpacity: S.labelOpacity, labelSize: S.labelSize, tagSize: S.tagSize });
 }
 
 async function parts() {
@@ -269,6 +272,7 @@ async function parts() {
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.showLabels, onchange: (e) => ((S.showLabels = e.target.checked), [...fields.children].forEach((f) => (f.disabled = !S.showLabels))) }), 'Show labels'),
       fields,
       ui.rangeField('Label opacity', S.labelOpacity, (v) => (S.labelOpacity = v), { min: 0, max: 100 }),
+      ui.rangeField('Label size', S.labelSize, (v) => (S.labelSize = v), { min: 30, max: 150, suffix: '%' }),
     );
   };
   const segOf = (S, key, opts, cols) => {
@@ -326,7 +330,7 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   await remember(S);
   const note = toast('Lining up the faces', { sticky: true });
   try {
-    const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, align: S.align });
+    const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize, align: S.align });
     toast(r.aligned || !S.align ? 'Before and after made.' : `No face found in the ${r.faces[0] ? 'after' : 'before'} photo, so both are centred instead.`);
   } finally {
     note.done();
@@ -355,6 +359,7 @@ export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
     labelsRow(S),
     colorRow('Labels', S.labelColors),
     colorRow('Tag', S.tagColors),
+    rangeField('Tag size', S.tagSize, (v) => (S.tagSize = v), { min: 30, max: 150, suffix: '%' }),
     h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the goal photo afterwards to fine tune each fix. The Simulated goal tag and the labels are layers you can drag anywhere.'),
   );
   const ok = await modal('Goal preview', body, [
@@ -368,7 +373,7 @@ export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
   await remember(S);
   const note = toast('Making the goal', { sticky: true });
   try {
-    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], amount: S.amount, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, tagColors: S.tagColors });
+    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], amount: S.amount, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize, tagColors: S.tagColors, tagSize: S.tagSize });
     toast(r.faces || !S.fixes.has('slimFace') ? 'Goal preview made.' : 'No face found, so only the body and colour goals ran.');
   } catch (e) {
     toast(e.message || String(e), { error: true });

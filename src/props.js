@@ -26,7 +26,7 @@ import { viewSettings, toggleRulers, toggleSafeZone, clearGuides } from './ruler
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { drawAdjustmentProps } from './adjustlayers.js';
-import { updateBadge, isLabel, pageLabels, setLabelOpacity, labelOpacity } from './badge.js';
+import { updateBadge, isLabel, pageLabels, setLabelOpacity, labelOpacity, setBadgeSize, badgeSize, setLabelSize, labelSize } from './badge.js';
 import { quickPanel } from './quickfix.js';
 
 // The right-hand panel: settings for whatever is selected, or the page.
@@ -295,7 +295,7 @@ function drawPage() {
       state.doc.slides > 1 ? h('p', { class: 'muted small' }, `Panorama carousel of ${state.doc.slides} slides. Export saves each slide as its own picture.`) : null,
       h('button', { class: 'btn wide', title: 'Makes a copy of this design for each size you pick, with the layout moved to fit', onclick: actions.otherSizes }, 'Make other sizes'),
     ),
-    pageLabels().length ? section('Labels', labelsOpacityField()) : null,
+    pageLabels().length ? section('Labels', labelsOpacityField(), labelsSizeField()) : null,
     section(
       'View',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: viewSettings().rulers, onchange: (e) => toggleRulers(e.target.checked) }), 'Rulers (Ctrl+R)'),
@@ -530,9 +530,28 @@ function drawBadge(o) {
       colorField('Box', o.badge.fill, (c, commit) => commit && change({ fill: c })),
       colorField('Words colour', o.badge.color, (c, commit) => commit && change({ color: c })),
       isLabel(o) ? labelsOpacityField() : null,
+      isLabel(o) ? labelsSizeField() : sizeField(o),
       h('p', { class: 'muted small' }, 'Drag it anywhere on the page. Delete removes it.'),
     ),
   );
+}
+
+const commitBadge = (commit) => {
+  canvas.requestRenderAll();
+  if (commit) {
+    record(true);
+    emit('objects');
+  }
+};
+
+/** One size slider for every label on the page. */
+function labelsSizeField() {
+  return rangeField('All labels size', labelSize(), (v, commit) => (setLabelSize(v), commitBadge(commit)), { min: 30, max: 150, suffix: '%' });
+}
+
+/** Size for one tag. */
+function sizeField(o) {
+  return rangeField('Size', badgeSize(o), (v, commit) => (setBadgeSize(o, v), commitBadge(commit)), { min: 30, max: 150, suffix: '%' });
 }
 
 /** One slider for every label on the page. The Simulated goal tag keeps its own opacity. */
