@@ -26,7 +26,7 @@ import { viewSettings, toggleRulers, toggleSafeZone, clearGuides } from './ruler
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { drawAdjustmentProps } from './adjustlayers.js';
-import { updateBadge } from './badge.js';
+import { updateBadge, isLabel, pageLabels, setLabelOpacity, labelOpacity } from './badge.js';
 import { quickPanel } from './quickfix.js';
 
 // The right-hand panel: settings for whatever is selected, or the page.
@@ -295,6 +295,7 @@ function drawPage() {
       state.doc.slides > 1 ? h('p', { class: 'muted small' }, `Panorama carousel of ${state.doc.slides} slides. Export saves each slide as its own picture.`) : null,
       h('button', { class: 'btn wide', title: 'Makes a copy of this design for each size you pick, with the layout moved to fit', onclick: actions.otherSizes }, 'Make other sizes'),
     ),
+    pageLabels().length ? section('Labels', labelsOpacityField()) : null,
     section(
       'View',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: viewSettings().rulers, onchange: (e) => toggleRulers(e.target.checked) }), 'Rulers (Ctrl+R)'),
@@ -528,9 +529,21 @@ function drawBadge(o) {
       h('label', { class: 'stack' }, h('span', { class: 'label' }, 'Words'), words),
       colorField('Box', o.badge.fill, (c, commit) => commit && change({ fill: c })),
       colorField('Words colour', o.badge.color, (c, commit) => commit && change({ color: c })),
+      isLabel(o) ? labelsOpacityField() : null,
       h('p', { class: 'muted small' }, 'Drag it anywhere on the page. Delete removes it.'),
     ),
   );
+}
+
+/** One slider for every label on the page. The Simulated goal tag keeps its own opacity. */
+function labelsOpacityField() {
+  return rangeField('All labels opacity', labelOpacity(), (v, commit) => {
+    setLabelOpacity(v);
+    if (commit) {
+      record(true);
+      emit('objects');
+    }
+  }, { min: 0, max: 100, suffix: '%' });
 }
 
 function drawQr(o) {

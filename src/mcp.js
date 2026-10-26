@@ -24,7 +24,7 @@ import { toast } from './ui.js';
 import { quickFix, activeFixes, settingsFor, renderLook } from './quickfix.js';
 import { detectFaces } from './faces.js';
 import { makeBeforeAfter, makeGoalPreview, LAYOUTS, GOAL_MAX, GOAL_DEFAULT } from './beforeafter.js';
-import { updateBadge } from './badge.js';
+import { updateBadge, setLabelOpacity, pageLabels } from './badge.js';
 import { listDir } from './platform.js';
 import { loadImage } from './assets.js';
 
@@ -520,7 +520,7 @@ const TOOLS = {
     if (!before || !after) fail('Give full paths for the before photo and the after photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await pairDesign({ before, after, layout, labels, align_faces, name, labelColors: labelColors(args) });
+    const r = await pairDesign({ before, after, layout, labels, align_faces, name, labelColors: labelColors(args), labelOpacity: await labelOpacityOf(args) });
     say('before and after made');
     return { text: JSON.stringify({ design: state.doc.name, ...r, layers: layersJson() }) };
   },
@@ -587,7 +587,7 @@ const TOOLS = {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem, labelColors: labelColors(args) });
+        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem, labelColors: labelColors(args), labelOpacity: await labelOpacityOf(args) });
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -605,13 +605,22 @@ const TOOLS = {
     return { text: JSON.stringify({ results }) };
   },
 
+  async set_label_opacity({ opacity }) {
+    if (!(opacity >= 0 && opacity <= 100)) fail('opacity is 0 to 100.');
+    const n = pageLabels().length;
+    if (!n) fail('This page has no labels. The Simulated goal tag is not a label: use set_layer opacity for it.');
+    setLabelOpacity(opacity);
+    done();
+    return { text: `Set ${n} label${n === 1 ? '' : 's'} to ${opacity}% opacity.` };
+  },
+
   async goal_preview(args) {
     const { photo, layout = 'side', labels = ['Today', 'Goal'], name, discard_changes = false } = args;
     if (!photo) fail('Give the full path of the patient photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     const opts = goalOptions(args);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await makeGoalPreview({ photo: await loadPath(photo), ...opts, layout, labels, name });
+    const r = await makeGoalPreview({ photo: await loadPath(photo), ...opts, labelOpacity: await labelOpacityOf(args), layout, labels, name });
     say('goal preview made');
     return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The goal side carries a Simulated goal tag. Keep it on whenever the picture is shown. Fine tune the goal with retouch on goal_layer and amounts, and move the tag or labels with set_layer.', layers: layersJson() }) };
   },
@@ -637,7 +646,7 @@ const TOOLS = {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await makeGoalPreview({ photo: await loadPath(item.photo), ...opts, layout, labels: item.labels || labels, name: stem });
+        const r = await makeGoalPreview({ photo: await loadPath(item.photo), ...opts, labelOpacity: await labelOpacityOf(args), layout, labels: item.labels || labels, name: stem });
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -678,6 +687,15 @@ const TOOLS = {
 // Short names a person or another assistant might use for the fixes.
 const FIX_ALIAS = { glow_up: 'glow', glowup: 'glow', glow: 'glow', smooth_skin: 'smooth', smoothen: 'smooth', smooth: 'smooth', skin: 'smooth', slim_face: 'slimFace', slimface: 'slimFace', face: 'slimFace', slim_body: 'slimBody', slimbody: 'slimBody', body: 'slimBody', enhance_faces: 'enhance', enhance: 'enhance', restore: 'enhance', bright_eyes: 'eyes', eyes: 'eyes', whiten_teeth: 'teeth', teeth: 'teeth' };
 
+// Label opacity: what the call gives, or what Gid last picked in the windows.
+async function labelOpacityOf(a) {
+  if (a.label_opacity != null) {
+    if (!(a.label_opacity >= 0 && a.label_opacity <= 100)) fail('label_opacity is 0 to 100.');
+    return +a.label_opacity;
+  }
+  return (await dataReadJson('settings/beforeafter.json', {})).labelOpacity ?? 0;
+}
+
 const labelColors = (a) => ({ ...(a.label_box_color ? { fill: a.label_box_color } : {}), ...(a.label_color ? { color: a.label_color } : {}) });
 const tagColors = (a) => ({ ...(a.tag_box_color ? { fill: a.tag_box_color } : {}), ...(a.tag_color ? { color: a.tag_color } : {}) });
 
@@ -695,10 +713,10 @@ async function loadPath(path) {
   return { name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) };
 }
 
-async function pairDesign({ before, after, layout, labels, align_faces, name, labelColors }) {
+async function pairDesign({ before, after, layout, labels, align_faces, name, labelColors, labelOpacity }) {
   const load = async (path) => ({ name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) });
   const [b, a] = await Promise.all([load(before), load(after)]);
-  const r = await makeBeforeAfter({ before: b, after: a, layout, labels, labelColors, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
+  const r = await makeBeforeAfter({ before: b, after: a, layout, labels, labelColors, labelOpacity, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
   return { aligned: r.aligned, faces: r.faces, layout, size: r.size };
 }
 

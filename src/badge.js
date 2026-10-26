@@ -31,9 +31,9 @@ function build({ text, fill, color, size, opacity = 1, spacing = 170 }) {
  * A new label or tag layer. `at` is { x, y, anchor } where anchor is
  * left or right, so a right-hand label keeps its right edge when retyped.
  */
-export function makeBadge({ text, fill, color, size, opacity = 1, name, at = { x: 0, y: 0, anchor: 'left' } }) {
-  const badge = { text, fill, color, size, opacity, anchor: at.anchor || 'left' };
-  const g = new fabric.Group(build(badge), { uid: uid(), name: name || `${text} label`, badge });
+export function makeBadge({ text, fill, color, size, opacity = 1, layerOpacity = 1, kind = 'label', name, at = { x: 0, y: 0, anchor: 'left' } }) {
+  const badge = { text, fill, color, size, opacity, kind, anchor: at.anchor || 'left' };
+  const g = new fabric.Group(build(badge), { uid: uid(), name: name || `${text} label`, badge, opacity: layerOpacity });
   g.set({ left: badge.anchor === 'right' ? at.x - g.width : at.x, top: at.y });
   g.setCoords();
   decorate(g);
@@ -58,3 +58,17 @@ export function updateBadge(o, changes) {
 }
 
 export const isBadge = (o) => !!o?.badge;
+
+/** Labels such as BEFORE or TODAY. The Simulated goal tag is not one. */
+export const isLabel = (o) => !!o?.badge && (o.badge.kind || (o.name === 'Simulated goal tag' ? 'tag' : 'label')) === 'label';
+export const pageLabels = () => canvas.getObjects().filter(isLabel);
+
+/** Sets the opacity of every label on the page, 0 to 100. */
+export function setLabelOpacity(v) {
+  const k = Math.max(0, Math.min(100, +v || 0)) / 100;
+  for (const o of pageLabels()) o.set('opacity', k);
+  canvas.requestRenderAll();
+}
+
+/** The labels' opacity on this page, 0 to 100. */
+export const labelOpacity = () => Math.round((pageLabels()[0]?.opacity ?? 1) * 100);
