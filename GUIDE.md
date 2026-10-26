@@ -295,8 +295,15 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 
 ## Templates and before-and-after
 
-- **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide), the two labels and their colours, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
-- **Opening two pictures:** pick two pictures in File > Open and they open side by side in one design with the faces lined up, in your saved Before and after layout.
+- **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide), the labels and how to line them up, then Create. Photos and labels stay separate layers, so you can move or retype them after.
+- **Opening two pictures:** pick two pictures in File > Open, or drag two pictures from a folder onto the page, and they open side by side in your saved Before and after layout, lined up.
+- **How lining up works:** Line up has four choices.
+  - **Auto** (the default) uses the face when it fills a good part of the photo and the body otherwise.
+  - **Faces** lines up by the eyes: same size, same tilt, same place.
+  - **Bodies** lines up by the shoulders, elbows, hips and knees, for breast, abdomen and full-length photos with or without the head. The before stays framed as you shot it, and the after is moved, scaled and turned to match it.
+  - **Off** centres each photo as shot.
+
+  It can't fix a different camera angle, such as the body turned more in one photo or shot from higher up, so take both from the same spot, height and pose. The message after says what it lined up by, or that it found nothing to match in both and centred them.
 - **Touch up:** for right after a session, when the result can't be seen yet. Select a photo and press Touch up at the top of Properties (it's also in the Image menu, and with nothing selected it's under the page settings). Pick the touch ups (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Apply. The photo gets a Simulated goal tag in its top corner.
   - With two or more photos on the page, pick which one under Photo. Only that one changes.
   - With one photo, tick Keep the original beside it to get the untouched photo next to the touched-up copy as a new design, with Today and Goal labels. Face touch ups zoom in on the face and body ones show the whole photo.

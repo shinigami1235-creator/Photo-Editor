@@ -296,8 +296,10 @@ function drawPage() {
       state.doc.slides > 1 ? h('p', { class: 'muted small' }, `Panorama carousel of ${state.doc.slides} slides. Export saves each slide as its own picture.`) : null,
       h('button', { class: 'btn wide', title: 'Makes a copy of this design for each size you pick, with the layout moved to fit', onclick: actions.otherSizes }, 'Make other sizes'),
     ),
-    canvas.getObjects().some((x) => isPhoto(x) && !x.isAdjustment) ? section(null, h('button', { class: 'btn primary wide touch-btn', title: 'Touch up a photo on this page', onclick: () => runCommand('image.touchUp') }, 'Touch up')) : null,
-    pageLabels().length ? section('Labels', labelsOpacityField(), labelsSizeField(), labelsSaveButton()) : null,
+    ...[
+      canvas.getObjects().some((x) => isPhoto(x) && !x.isAdjustment) && section(null, h('button', { class: 'btn primary wide touch-btn', title: 'Touch up a photo on this page', onclick: () => runCommand('image.touchUp') }, 'Touch up')),
+      pageLabels().length && section('Labels', labelsOpacityField(), labelsSizeField(), labelsSaveButton()),
+    ].filter(Boolean),
     section(
       'View',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: viewSettings().rulers, onchange: (e) => toggleRulers(e.target.checked) }), 'Rulers (Ctrl+R)'),

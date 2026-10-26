@@ -86,7 +86,7 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { MENUS } from './menus.js';
 import { init as initClaude } from './mcp.js';
 import { initQuickFixes } from './quickfix.js';
-import { beforeAfterDialog, touchUpDialog, makeBeforeAfter } from './beforeafter.js';
+import { beforeAfterDialog, touchUpDialog, makeBeforeAfter, alignMessage } from './beforeafter.js';
 import { loadDefaults, defaults } from './defaults.js';
 
 const $ = (s) => document.querySelector(s);
@@ -536,8 +536,8 @@ async function openPair([a, b]) {
     const D = defaults('beforeAfter');
     const L = defaults('labels');
     const [before, after] = await Promise.all([a, b].map(async (f) => ({ name: f.name, url: await pictureUrl(f.name, f.bytes) })));
-    await makeBeforeAfter({ before, after, layout: D.layout, labels: L.show ? D.labels : [], align: D.align, name: `${a.name.replace(/\.[^.]+$/, '')} and ${b.name.replace(/\.[^.]+$/, '')}` });
-    toast(`Opened ${a.name} and ${b.name} side by side. Select one and press Touch up to work on it alone.`);
+    const r = await makeBeforeAfter({ before, after, layout: D.layout, labels: L.show ? D.labels : [], align: D.align, name: `${a.name.replace(/\.[^.]+$/, '')} and ${b.name.replace(/\.[^.]+$/, '')}` });
+    toast(`${alignMessage(r, D.align)} Select one and press Touch up to work on it alone.`);
   } catch (e) {
     toast(e.message || `${a.name} and ${b.name} could not be opened.`, { error: true });
   } finally {
@@ -997,6 +997,14 @@ function setupDrop() {
   ws.addEventListener('drop', async (e) => {
     e.preventDefault();
     ws.classList.remove('drag');
+    // Two pictures dropped together open side by side, lined up, like File > Open.
+    const dropped = [...e.dataTransfer.files];
+    const pics = dropped.filter((f) => isImageName(f.name) || isRawName(f.name));
+    const onFrame = state.doc && objectAt(scenePoint(e))?.isFrame;
+    if (pics.length === 2 && dropped.length === 2 && !onFrame) {
+      if (!(await confirmDiscard())) return;
+      return openPair(await Promise.all(pics.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))));
+    }
     if (!state.doc) return;
     const point = scenePoint(e);
     const target = objectAt(point);

@@ -2,7 +2,7 @@
 // or stacked, faces lined up at the same size, angle and place, and labels.
 
 import { canvas, fabric, decorate } from './canvas.js';
-import { newDoc, uid } from './state.js';
+import { newDoc, uid, emit } from './state.js';
 import { record } from './history.js';
 import { openDocument } from './pages.js';
 import { loadImage, registerBlob } from './assets.js';
@@ -12,7 +12,8 @@ import { state } from './state.js';
 import { isPhoto } from './frames.js';
 
 export const LABEL_OPACITY = 0;
-import { detectFaces } from './faces.js';
+import { detectFaces, similarity, invert } from './faces.js';
+import { detectPose, BODY_POINTS } from './pose.js';
 import { blurAlphaCanvas } from './pixels.js';
 
 export const LAYOUTS = {
@@ -81,7 +82,7 @@ function plan(img, face, cell, eyeTarget, level = true) {
 }
 
 /** Renders a planned photo at up to 2x the cell so the result stays sharp. */
-function cropToCell(img, cell, { s: s0, ang, anchor, target }, grow) {
+function cropToCell(img, cell, { s: s0, ang, anchor, target, feather = false }, grow) {
   const s = s0 * grow;
   const k = Math.min(2, Math.max(1, 1 / s));
   const c = document.createElement('canvas');
@@ -104,7 +105,7 @@ function cropToCell(img, cell, { s: s0, ang, anchor, target }, grow) {
     ctx.scale(s, s);
     ctx.translate(-anchor[0], -anchor[1]);
   };
-  if (grow >= 1.33) {
+  if (grow >= 1.33 || feather) {
     // The photo runs out inside the cell: fade its edge into the backdrop.
     const top = document.createElement('canvas');
     top.width = c.width;
@@ -137,25 +138,70 @@ function label(text, cell, anchor, colors, layerOpacity = 1, sizePct = 100) {
   return g;
 }
 
+const MIN_SCORE = 0.3;
+
+/** Body points both photos found, as [beforePoints, afterPoints]. */
+function sharedBodyPoints(bPose, aPose) {
+  const b = [];
+  const a = [];
+  for (const i of BODY_POINTS) {
+    if (bPose[i].score >= MIN_SCORE && aPose[i].score >= MIN_SCORE) {
+      b.push([bPose[i].x, bPose[i].y]);
+      a.push([aPose[i].x, aPose[i].y]);
+    }
+  }
+  return [b, a];
+}
+
+/**
+ * Lines the after body up with the before body. The before photo fills its
+ * cell as shot; the after is moved, scaled and turned so its shoulders, elbows,
+ * hips and knees land where the before's do. Returns null when the two
+ * disagree too much to trust (a wrong point, or a very different pose).
+ */
+function bodyPlans(bImg, aImg, bPts, aPts, cells) {
+  const pb = plan(bImg, null, cells[0], null);
+  const dst = bPts.map(([x, y]) => [(x - pb.anchor[0]) * pb.s * pb.grow + pb.target[0], (y - pb.anchor[1]) * pb.s * pb.grow + pb.target[1]]);
+  const m = similarity(aPts, dst);
+  const s = Math.hypot(m[0], m[1]);
+  const ang = Math.atan2(m[1], m[0]);
+  const nb = Math.hypot(bImg.naturalWidth || bImg.width, bImg.naturalHeight || bImg.height);
+  const na = Math.hypot(aImg.naturalWidth || aImg.width, aImg.naturalHeight || aImg.height);
+  // Relative to picture size, the bodies should be within 2x of each other and turned under 15 degrees.
+  const rel = (s / (pb.s * pb.grow)) * (na / nb);
+  if (!(rel > 0.5 && rel < 2) || Math.abs(ang) > (15 * Math.PI) / 180) return null;
+  const inv = invert(m);
+  const iw = aImg.naturalWidth || aImg.width;
+  const ih = aImg.naturalHeight || aImg.height;
+  const cell = cells[1];
+  const covers = [[0, 0], [cell.w, 0], [0, cell.h], [cell.w, cell.h]].every(([x, y]) => {
+    const u = inv[0] * x - inv[1] * y + inv[2];
+    const v = inv[1] * x + inv[0] * y + inv[3];
+    return u >= 0 && v >= 0 && u <= iw && v <= ih;
+  });
+  return [pb, { s, ang, anchor: [0, 0], target: [m[2], m[3]], grow: 1, feather: !covers }];
+}
+
 /** Lays two loaded pictures into a new design. */
-async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, labelColors, labelOpacity = LABEL_OPACITY, labelSize = 100, name, gap, background }) {
+async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, bodies = null, names, layout, labels, labelColors, labelOpacity = LABEL_OPACITY, labelSize = 100, name, gap, background }) {
   const L = LAYOUTS[layout] || LAYOUTS.side;
-  const bothFaces = align && bFaces.length > 0 && aFaces.length > 0;
+  const bothFaces = !bodies && align && bFaces.length > 0 && aFaces.length > 0;
   const doc = newDoc({ name, width: L.width, height: L.height });
   doc.pages[0].background = background;
   await openDocument(doc);
   const cs = cells(layout, L.width, L.height, gap);
   const eyeTarget = { dist: Math.min(cs[0].w * 0.27, cs[0].h * 0.18), y: layout === 'stack' ? 0.42 : 0.4 };
-  const plans = [plan(bImg, bothFaces ? bFaces[0] : null, cs[0], eyeTarget, level), plan(aImg, bothFaces ? aFaces[0] : null, cs[1], eyeTarget, level)];
+  const bodyPlan = bodies ? bodyPlans(bImg, aImg, bodies[0], bodies[1], cs) : null;
+  const plans = bodyPlan || [plan(bImg, bothFaces ? bFaces[0] : null, cs[0], eyeTarget, level), plan(aImg, bothFaces ? aFaces[0] : null, cs[1], eyeTarget, level)];
   // Lined-up faces zoom together so they stay the same size.
-  const shared = Math.max(plans[0].grow, plans[1].grow);
+  const shared = bodyPlan ? 1 : Math.max(plans[0].grow, plans[1].grow);
   const out = [];
   for (const [i, img, text] of [
     [0, bImg, labels?.[0] || names.photoNames?.[0] || 'Before'],
     [1, aImg, labels?.[1] || names.photoNames?.[1] || 'After'],
   ]) {
     const cell = cs[i];
-    const crop = cropToCell(img, cell, plans[i], bothFaces ? shared : plans[i].grow);
+    const crop = cropToCell(img, cell, plans[i], bothFaces || bodyPlan ? shared : plans[i].grow);
     const blob = await new Promise((r) => crop.canvas.toBlob(r, 'image/jpeg', 0.93));
     const el = await loadImage(registerBlob(blob));
     const photo = new fabric.FabricImage(el, { uid: uid(), name: `${text} photo`, frameShape: { kind: 'rect', r: 0 }, left: cell.x, top: cell.y, scaleX: 1 / crop.k, scaleY: 1 / crop.k, sourceName: names.files[i] });
@@ -166,7 +212,7 @@ async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names,
   const k = Math.max(0, Math.min(100, +labelOpacity)) / 100;
   if (labels?.[0]) canvas.add(label(labels[0], cs[0], 'left', labelColors, k, labelSize));
   if (labels?.[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right', labelColors, k, labelSize));
-  return { cells: cs, aligned: bothFaces, photos: out, size: [L.width, L.height] };
+  return { cells: cs, aligned: bodyPlan ? 'body' : bothFaces ? 'face' : false, photos: out, size: [L.width, L.height] };
 }
 
 /** Label settings, with the saved defaults filling anything left out. */
@@ -184,19 +230,32 @@ const finish = () => {
   canvas.discardActiveObject();
   canvas.requestRenderAll();
   record(true);
+  emit('objects');
 };
 
 /**
  * Makes the design. before and after are { url, name }. labels can be empty
  * to leave them off. Returns { aligned, faces: [before, after] }.
  */
-export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, labelOpacity, labelSize, align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, labelOpacity, labelSize, align = 'auto', name = 'Before and after', gap = 8, background = '#ffffff' }) {
   ({ labelColors, labelOpacity, labelSize } = labelLook({ labelColors, labelOpacity, labelSize }));
+  align = align === true ? 'auto' : align || 'off';
   const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
-  const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
-  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: { files: [before.name, after.name] }, layout, labels, labelColors, labelOpacity, labelSize, name, gap, background });
+  const [bFaces, aFaces] = align === 'off' || align === 'body' ? [[], []] : await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]);
+  // A face that fills a good part of the photo means a face shot; otherwise
+  // it's a body shot (or the head is cropped out) and the body lines them up.
+  const bigFace = (f, img) => f.length > 0 && f[0].box.h / (img.naturalHeight || img.height) >= 0.2;
+  const faceShot = bigFace(bFaces, bImg) && bigFace(aFaces, aImg);
+  let bodies = null;
+  if (align === 'body' || (align === 'auto' && !faceShot)) {
+    const [bPose, aPose] = await Promise.all([detectPose(bImg, { key: before.url }), detectPose(aImg, { key: after.url })]);
+    const [bp, ap] = sharedBodyPoints(bPose, aPose);
+    if (bp.length >= 3) bodies = [bp, ap];
+  }
+  const useFaces = align === 'face' || (align === 'auto' && !bodies);
+  const r = await compose({ bImg, aImg, bFaces: useFaces ? bFaces : [], aFaces: useFaces ? aFaces : [], align: useFaces, bodies, names: { files: [before.name, after.name] }, layout, labels, labelColors, labelOpacity, labelSize, name, gap, background });
   finish();
-  return { aligned: r.aligned, faces: [bFaces.length, aFaces.length], photos: r.photos, layout, size: r.size };
+  return { aligned: r.aligned, faces: [bFaces.length, aFaces.length], body_points: bodies ? bodies[0].length : 0, photos: r.photos, layout, size: r.size };
 }
 
 /**
@@ -285,6 +344,14 @@ export async function makeTouchUpPair({ photo, fixes, amount, amounts = null, la
 
 export const makeGoalPreview = makeTouchUpPair;
 
+/** What happened with lining up, for the status bar. */
+export function alignMessage(r, align) {
+  if (r.aligned === 'face') return 'Lined up by the faces.';
+  if (r.aligned === 'body') return `Lined up by the body (${r.body_points} points matched).`;
+  if (align === 'off') return 'Before and after made.';
+  return 'No face or body points matched in both photos, so each is centred as shot.';
+}
+
 // ---------- Windows ----------
 
 /** Window state from the saved defaults. */
@@ -371,16 +438,17 @@ async function parts() {
 
 /** The Before and after window: pick two photos, a layout and the labels. */
 export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
-  const { h, modal, toast, labelsRow, layoutSeg, pickBox, saveButton } = await parts();
+  const { h, modal, toast, labelsRow, layoutSeg, segOf, pickBox, saveButton } = await parts();
   const S = { before: null, after: null, ...startState('beforeAfter') };
+  S.align = S.align === true ? 'auto' : S.align || 'off';
   const body = h(
     'div',
     { class: 'stack gap ba-dialog' },
     h('div', { class: 'ba-picks' }, pickBox(S, 'before', 'Before photo', pickPhoto), pickBox(S, 'after', 'After photo', pickPhoto)),
     h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)),
     labelsRow(S),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.align, onchange: (e) => (S.align = e.target.checked) }), 'Line up the faces'),
-    h('p', { class: 'muted small' }, 'Both faces are matched for size, angle and place, so the only difference left is the result.'),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Line up'), segOf(S, 'align', [['auto', 'Auto', 'Faces for face shots, bodies for body shots'], ['face', 'Faces', 'By the eyes'], ['body', 'Bodies', 'By the shoulders, elbows, hips and knees'], ['off', 'Off', 'Each photo centred as shot']])),
+    h('p', { class: 'muted small' }, 'Face shots line up by the eyes. Body shots, with or without the head, line up by the shoulders, elbows, hips and knees, with the after matched to how the before was framed.'),
     saveButton(async () => {
       await saveDefaults('beforeAfter', { layout: S.layout, labels: S.labels, align: S.align });
       await saveLabels(S);
@@ -396,7 +464,7 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   const note = toast('Lining up the faces', { sticky: true });
   try {
     const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize, align: S.align });
-    toast(r.aligned || !S.align ? 'Before and after made.' : `No face found in the ${r.faces[0] ? 'after' : 'before'} photo, so both are centred instead.`);
+    toast(alignMessage(r, S.align));
   } finally {
     note.done();
   }

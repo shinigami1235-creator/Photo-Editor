@@ -23,6 +23,7 @@ The Mac app needs macOS 12 or newer. It is not signed with an Apple developer ac
 
 - **Background removal:** the ISNet general-use model (179 MB, Apache 2.0) downloads from the rembg releases on GitHub the first time Remove background or Select subject is used, and stays in the app's data folder. It runs on the graphics card through WebGPU, or on the CPU when WebGPU is not there.
 - **Faces:** face-api (@vladmandic/face-api, MIT) finds faces and 68 points on each, with its SSD MobileNet and 68-point landmark models in `public/models/face` (6 MB). Faces are straightened to the FFHQ 512 layout the same way CodeFormer does it, worked on, and pasted back through a soft oval.
+- **Bodies:** MoveNet Thunder (Google, Apache 2.0), as converted to TensorFlow.js in @vladmandic/human-models (MIT), in `public/models/pose` (12 MB). It finds 17 body points, and Before and after lines up body photos by the shoulders, elbows, hips and knees with a least-squares fit.
 - **Enhance faces:** RestoreFormer++ (Apache 2.0), converted from the facefusion ONNX export: debug outputs removed, simplified and stored as fp16 (148 MB). It downloads the first time Enhance faces or Glow up runs, from the `models` branch of this repo in two parts, with the facefusion fp32 file as the fallback. It was trained on FFHQ, whose photos are under their own licences, which matters only if the editor is ever sold. CodeFormer was studied for the method but not used, since its S-Lab licence rules out commercial use.
 - **Upscale:** Real-ESRGAN general x4v3 (4.9 MB, BSD 3-Clause) ships inside the app as `public/models/upscale-x4.onnx`. It was converted from the original `realesr-general-x4v3.pth` release weights.
 
@@ -65,6 +66,7 @@ Shape combining uses polygon-clipping (MIT).
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
 | `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Touch up |
+| `src/pose.js` | Body points with MoveNet, for lining up body photos |
 | `src/defaults.js` | The Save as default settings that new files and Claude's batches start from |
 | `src/badge.js` | Label and tag layers (BEFORE, SIMULATED GOAL) whose words and colours stay editable |
 | `src/pixels.js` | Fast blurs and mask helpers for the retouch tools |

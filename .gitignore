@@ -9,3 +9,4 @@ test-images
 branding/png
 branding/pngmac
 branding/render.mjs
+!public/models/pose/

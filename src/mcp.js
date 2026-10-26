@@ -519,7 +519,8 @@ const TOOLS = {
 
   async before_after(args) {
     const B = defaults('beforeAfter');
-    const { before, after, layout = B.layout, labels = defaults('labels').show ? B.labels : [], align_faces = B.align, name, discard_changes = false } = args;
+    const { before, after, layout = B.layout, labels = defaults('labels').show ? B.labels : [], name, discard_changes = false } = args;
+    const align_faces = lineUp(args, B.align);
     if (!before || !after) fail('Give full paths for the before photo and the after photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
@@ -572,8 +573,9 @@ const TOOLS = {
 
   async batch_before_after(args) {
     const B = defaults('beforeAfter');
-    const { pairs = [], output_folder, layout = B.layout, labels = defaults('labels').show ? B.labels : [], align_faces = B.align, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
+    const { pairs = [], output_folder, layout = B.layout, labels = defaults('labels').show ? B.labels : [], format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
     if (!pairs.length) fail('Give pairs as [{ before, after, name }] with full paths.');
+    const align_faces = lineUp(args, B.align);
     if (!output_folder) fail('Give the folder to save the results in.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
@@ -601,7 +603,7 @@ const TOOLS = {
           state.dirty = false;
           emit('dirty');
         }
-        results.push({ name: stem, picture, design: save_designs ? design : undefined, faces_lined_up: r.aligned, faces_found: r.faces });
+        results.push({ name: stem, picture, design: save_designs ? design : undefined, lined_up_by: r.aligned, faces_found: r.faces, body_points_matched: r.body_points });
       } catch (e) {
         results.push({ name: stem, error: e.message || String(e) });
       }
@@ -762,6 +764,16 @@ function touchOptions(a) {
   };
 }
 
+/** How to line up a pair: line_up (auto, face, body, off), the older align_faces, or the saved default. */
+function lineUp(a, fallback) {
+  if (a.line_up != null) {
+    if (!['auto', 'face', 'body', 'off'].includes(a.line_up)) fail('line_up is auto, face, body or off.');
+    return a.line_up;
+  }
+  if (a.align_faces != null) return a.align_faces ? 'auto' : 'off';
+  return fallback === true ? 'auto' : fallback || 'off';
+}
+
 const fixIds = (fixes = []) => fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
 
 async function loadPath(path) {
@@ -772,7 +784,7 @@ async function pairDesign({ before, after, layout, labels, align_faces, name, la
   const load = async (path) => ({ name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) });
   const [b, a] = await Promise.all([load(before), load(after)]);
   const r = await makeBeforeAfter({ before: b, after: a, layout, labels, labelColors, labelOpacity, labelSize, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
-  return { aligned: r.aligned, faces: r.faces, layout, size: r.size };
+  return { lined_up_by: r.aligned, aligned: r.aligned, faces: r.faces, body_points: r.body_points, layout, size: r.size };
 }
 
 // Commands that open a picker or a window. Each points at the tool to use instead.
