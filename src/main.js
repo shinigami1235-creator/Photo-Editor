@@ -86,7 +86,8 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { MENUS } from './menus.js';
 import { init as initClaude } from './mcp.js';
 import { initQuickFixes } from './quickfix.js';
-import { beforeAfterDialog, goalPreviewDialog } from './beforeafter.js';
+import { beforeAfterDialog, touchUpDialog, makeBeforeAfter } from './beforeafter.js';
+import { loadDefaults, defaults } from './defaults.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -520,9 +521,28 @@ async function save(as) {
 
 async function openDesign() {
   if (!(await confirmDiscard())) return;
-  const files = await pickFiles({ extensions: ['zip', 'png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], label: 'Designs, images and RAW files' });
+  const files = await pickFiles({ extensions: ['zip', 'png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], multiple: true, label: 'Designs, images and RAW files' });
   if (!files?.length) return;
-  await openBytes(files[0]);
+  if (files.length === 1) return openBytes(files[0]);
+  const pics = files.filter((f) => isImageName(f.name) || isRawName(f.name));
+  if (files.length > 2 || pics.length !== 2) return toast('Pick one design or picture, or two pictures to open side by side.', { error: true });
+  await openPair(pics);
+}
+
+/** Two pictures open side by side in one design, faces lined up, in the saved Before and after layout. */
+async function openPair([a, b]) {
+  const note = toast('Lining up the faces', { sticky: true });
+  try {
+    const D = defaults('beforeAfter');
+    const L = defaults('labels');
+    const [before, after] = await Promise.all([a, b].map(async (f) => ({ name: f.name, url: await pictureUrl(f.name, f.bytes) })));
+    await makeBeforeAfter({ before, after, layout: D.layout, labels: L.show ? D.labels : [], align: D.align, name: `${a.name.replace(/\.[^.]+$/, '')} and ${b.name.replace(/\.[^.]+$/, '')}` });
+    toast(`Opened ${a.name} and ${b.name} side by side. Select one and press Touch up to work on it alone.`);
+  } catch (e) {
+    toast(e.message || `${a.name} and ${b.name} could not be opened.`, { error: true });
+  } finally {
+    note.done();
+  }
 }
 
 /** Puts pictures from disk on the page, like Photoshop's Place Embedded. */
@@ -1135,17 +1155,18 @@ function defineCoreCommands() {
         }),
       also: 'collage compare result',
     },
-    'file.goalPreview': {
-      label: 'Goal preview',
+    'image.touchUp': {
+      label: 'Touch up',
       run: () =>
-        goalPreviewDialog({
+        touchUpDialog({
           confirmDiscard,
+          target: photo(),
           pickPhoto: async () => {
             const [f] = (await pickFiles({ extensions: ['png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], label: 'Images and RAW files' })) || [];
             return f ? { name: f.name, url: await pictureUrl(f.name, f.bytes) } : null;
           },
         }),
-      also: 'simulation projected result consult slim program',
+      also: 'simulation slim program consult goal',
     },
     // Layer
     'layer.text': { label: 'New text', run: () => addText('body') , enabled: doc },
@@ -1551,7 +1572,7 @@ async function start() {
     renderLayers();
   });
 
-  await Promise.all([initFonts(), initBrand(), initTemplates()]);
+  await Promise.all([initFonts(), initBrand(), initTemplates(), loadDefaults()]);
   setTool('move');
   if (!(await offerRestore())) {
     await openDocument(newDoc({ ...SIZE_PRESETS[0], name: 'Untitled design' }));

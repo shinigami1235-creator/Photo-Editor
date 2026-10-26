@@ -64,7 +64,8 @@ Shape combining uses polygon-clipping (MIT).
 | `src/beauty.js` | Smooth skin, Slim face, Slim body, Bright eyes, Whiten teeth and Enhance faces, kept editable on each photo |
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
-| `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Goal preview |
+| `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Touch up |
+| `src/defaults.js` | The Save as default settings that new files and Claude's batches start from |
 | `src/badge.js` | Label and tag layers (BEFORE, SIMULATED GOAL) whose words and colours stay editable |
 | `src/pixels.js` | Fast blurs and mask helpers for the retouch tools |
 | `src/mcp.js` | The Claude connector's tools and the Help menu switch |

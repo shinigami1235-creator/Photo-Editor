@@ -7,6 +7,9 @@ import { record } from './history.js';
 import { openDocument } from './pages.js';
 import { loadImage, registerBlob } from './assets.js';
 import { makeBadge, setBadgeSize, LABEL_COLORS, TAG_COLORS } from './badge.js';
+import { defaults, saveDefaults } from './defaults.js';
+import { state } from './state.js';
+import { isPhoto } from './frames.js';
 
 export const LABEL_OPACITY = 0;
 import { detectFaces } from './faces.js';
@@ -166,6 +169,17 @@ async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names,
   return { cells: cs, aligned: bothFaces, photos: out, size: [L.width, L.height] };
 }
 
+/** Label settings, with the saved defaults filling anything left out. */
+function labelLook({ labelColors, labelOpacity, labelSize }) {
+  const L = defaults('labels');
+  return { labelColors: labelColors || { fill: L.fill, color: L.color }, labelOpacity: labelOpacity ?? L.opacity, labelSize: labelSize ?? L.size };
+}
+
+function tagLook({ tag, tagColors, tagSize }) {
+  const T = defaults('tag');
+  return { tag: tag || T.text, tagColors: tagColors || { fill: T.fill, color: T.color }, tagSize: tagSize ?? T.size };
+}
+
 const finish = () => {
   canvas.discardActiveObject();
   canvas.requestRenderAll();
@@ -177,6 +191,7 @@ const finish = () => {
  * to leave them off. Returns { aligned, faces: [before, after] }.
  */
 export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, labelOpacity, labelSize, align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+  ({ labelColors, labelOpacity, labelSize } = labelLook({ labelColors, labelOpacity, labelSize }));
   const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
   const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
   const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: { files: [before.name, after.name] }, layout, labels, labelColors, labelOpacity, labelSize, name, gap, background });
@@ -207,50 +222,89 @@ export function goalAmounts(fixes, amount = GOAL_DEFAULT) {
   return s;
 }
 
-/** The tag on a goal preview that marks it as a simulation, at the top of the goal side. */
-function simTag(cell, text, colors, sizePct = 100) {
-  const size = Math.round(Math.min(cell.w, cell.h) * 0.04);
-  const margin = Math.round(Math.min(cell.w, cell.h) * 0.025);
-  const g = makeBadge({ text, ...TAG_COLORS, ...colors, size, kind: 'tag', name: 'Simulated goal tag', at: { x: cell.x + cell.w - margin, y: cell.y + margin, anchor: 'right' } });
+/** The tag that marks a touched-up photo as a simulation, top right of `box`. */
+function simTag(box, text, colors, sizePct = 100, photoId = null) {
+  // The same share of the photo's width whatever its shape, so a wide photo
+  // doesn't get a huge tag and a narrow one a tiny one.
+  const size = Math.max(10, Math.round(Math.min(box.w * 0.026, box.h * 0.035)));
+  const margin = Math.round(Math.min(box.w, box.h) * 0.025);
+  const g = makeBadge({ text, ...TAG_COLORS, ...colors, size, kind: 'tag', name: 'Simulated goal tag', at: { x: box.x + box.w - margin, y: box.y + margin, anchor: 'right' } });
+  g.badge.photo = photoId;
   if (sizePct !== 100) setBadgeSize(g, sizePct);
   return g;
 }
 
+/** The part of a layer that shows on the page. */
+function visibleBox(o) {
+  const b = o.getBoundingRect();
+  const x = Math.max(0, b.left);
+  const y = Math.max(0, b.top);
+  return { x, y, w: Math.min(state.doc.width, b.left + b.width) - x, h: Math.min(state.doc.height, b.top + b.height) - y };
+}
+
 /**
- * A goal preview: the photo as it is today beside a simulated goal, tagged as
- * a simulation. photo is { url, name }; fixes are slimFace, slimBody, smooth
- * and glow; amount is 0 to 100 on the goal scale, or `amounts` sets exact fix
- * amounts. The goal photo keeps its fixes editable with Fine tune.
+ * Touches up a photo already on the page. The fixes stay live for Fine tune,
+ * and the Simulated goal tag goes on the photo unless it already has one.
  */
-export async function makeGoalPreview({ photo, fixes = ['slimFace'], amount = GOAL_DEFAULT, amounts = null, layout = 'side', labels = ['Today', 'Goal'], labelColors, labelOpacity, labelSize, tag = 'Simulated goal', tagColors, tagSize = 100, name, gap = 8, background = '#ffffff' }) {
+export async function touchUpLayer(o, { fixes, amount, amounts = null, tag, tagColors, tagSize } = {}) {
   const { quickFix } = await import('./quickfix.js');
-  const settings = { ...goalAmounts(fixes, amount), ...(amounts || {}) };
+  const D = defaults('touchUp');
+  fixes = fixes || D.fixes;
+  const settings = { ...goalAmounts(fixes, amount ?? D.amount), ...(amounts || {}) };
+  ({ tag, tagColors, tagSize } = tagLook({ tag, tagColors, tagSize }));
+  const r = await quickFix(o, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
+  if (!canvas.getObjects().some((t) => t.badge?.kind === 'tag' && t.badge.photo === o.uid)) canvas.add(simTag(visibleBox(o), tag, tagColors, tagSize, o.uid));
+  finish();
+  return { faces: r.faces, fixes, amounts: settings, layer: o.uid };
+}
+
+/**
+ * Touch up side by side: the photo as it is today beside a touched-up copy,
+ * as a new design. photo is { url, name }; fixes are slimFace, slimBody,
+ * smooth and glow; amount is 0 to 100 on the goal scale.
+ */
+export async function makeTouchUpPair({ photo, fixes, amount, amounts = null, layout, labels, labelColors, labelOpacity, labelSize, tag, tagColors, tagSize, name, gap = 8, background = '#ffffff' }) {
+  const { quickFix } = await import('./quickfix.js');
+  const D = defaults('touchUp');
+  fixes = fixes || D.fixes;
+  layout = layout || D.layout;
+  labels = labels || D.labels;
+  ({ labelColors, labelOpacity, labelSize } = labelLook({ labelColors, labelOpacity, labelSize }));
+  ({ tag, tagColors, tagSize } = tagLook({ tag, tagColors, tagSize }));
+  const settings = { ...goalAmounts(fixes, amount ?? D.amount), ...(amounts || {}) };
   const img = await loadImage(photo.url);
   // A body goal shows the whole photo, since zooming to the face hides the body.
   const faces = await detectFaces(img, { key: photo.url });
-  const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Today', 'Goal'] }, layout, labels, labelColors, labelOpacity, labelSize, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
+  const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Original', 'Touched up'] }, layout, labels, labelColors, labelOpacity, labelSize, name: name || `${photo.name.replace(/\.[^.]+$/, '')} touch up`, gap, background });
   const goal = r.photos[1];
   await quickFix(goal, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
-  canvas.add(simTag(r.cells[1], tag || 'Simulated goal', tagColors, tagSize));
+  canvas.add(simTag(r.cells[1], tag, tagColors, tagSize, goal.uid));
   finish();
   return { faces: faces.length, fixes, amounts: settings, goal_layer: goal.uid, layout, size: r.size };
 }
 
+export const makeGoalPreview = makeTouchUpPair;
+
 // ---------- Windows ----------
 
-const SAVED = 'settings/beforeafter.json';
-
-/** Colours and label choices from last time, so a clinic's theme sticks. */
-async function remembered() {
-  const { dataReadJson } = await import('./platform.js');
-  const d = await dataReadJson(SAVED, {});
-  return { labelColors: { ...LABEL_COLORS, ...d.labelColors }, tagColors: { ...TAG_COLORS, ...d.tagColors }, showLabels: d.showLabels !== false, labelOpacity: d.labelOpacity ?? LABEL_OPACITY, labelSize: d.labelSize ?? 100, tagSize: d.tagSize ?? 100 };
+/** Window state from the saved defaults. */
+function startState(kind) {
+  const L = defaults('labels');
+  const T = defaults('tag');
+  return {
+    ...defaults(kind),
+    showLabels: L.show,
+    labelOpacity: L.opacity,
+    labelSize: L.size,
+    labelColors: { fill: L.fill, color: L.color },
+    tagColors: { fill: T.fill, color: T.color },
+    tagSize: T.size,
+    tagText: T.text,
+  };
 }
 
-async function remember(S) {
-  const { dataWriteJson } = await import('./platform.js');
-  await dataWriteJson(SAVED, { labelColors: S.labelColors, tagColors: S.tagColors, showLabels: S.showLabels, labelOpacity: S.labelOpacity, labelSize: S.labelSize, tagSize: S.tagSize });
-}
+const saveLabels = (S) => saveDefaults('labels', { show: S.showLabels, opacity: S.labelOpacity, size: S.labelSize, ...S.labelColors });
+const saveTag = (S) => saveDefaults('tag', { size: S.tagSize, ...S.tagColors });
 
 async function parts() {
   const ui = await import('./ui.js');
@@ -273,13 +327,14 @@ async function parts() {
       fields,
       ui.rangeField('Label opacity', S.labelOpacity, (v) => (S.labelOpacity = v), { min: 0, max: 100 }),
       ui.rangeField('Label size', S.labelSize, (v) => (S.labelSize = v), { min: 30, max: 150, suffix: '%' }),
+      colorRow('Labels', S.labelColors),
     );
   };
-  const segOf = (S, key, opts, cols) => {
+  const segOf = (S, key, opts) => {
     const el = h(
       'div',
-      { class: 'seg ba-seg', style: cols ? { gridTemplateColumns: `repeat(${cols}, 1fr)` } : null },
-      opts.map(([id, text, title]) => h('button', { class: id === S[key] ? 'on' : '', title: title || '', onclick: (e) => ((S[key] = id), [...el.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget))) }, text)),
+      { class: 'seg ba-seg' },
+      opts.map(([id, text, title]) => h('button', { class: id === S[key] ? 'on' : '', title: title || '', onclick: (e) => ((S[key] = id), [...el.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget)), S.onChange?.()) }, text)),
     );
     return el;
   };
@@ -303,22 +358,33 @@ async function parts() {
     );
     return b;
   };
-  return { ...ui, colorRow, labelsRow, layoutSeg, pickBox };
+  const saveButton = (save) =>
+    h('button', {
+      class: 'btn small ba-save',
+      onclick: async () => {
+        await save();
+        ui.toast('Saved as default. New files start from these settings.');
+      },
+    }, 'Save as default');
+  return { ...ui, colorRow, labelsRow, layoutSeg, segOf, pickBox, saveButton };
 }
 
 /** The Before and after window: pick two photos, a layout and the labels. */
 export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
-  const { h, modal, toast, colorRow, labelsRow, layoutSeg, pickBox } = await parts();
-  const S = { before: null, after: null, layout: 'side', labels: ['Before', 'After'], align: true, ...(await remembered()) };
+  const { h, modal, toast, labelsRow, layoutSeg, pickBox, saveButton } = await parts();
+  const S = { before: null, after: null, ...startState('beforeAfter') };
   const body = h(
     'div',
     { class: 'stack gap ba-dialog' },
     h('div', { class: 'ba-picks' }, pickBox(S, 'before', 'Before photo', pickPhoto), pickBox(S, 'after', 'After photo', pickPhoto)),
     h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)),
     labelsRow(S),
-    colorRow('Labels', S.labelColors),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => (S.align = e.target.checked) }), 'Line up the faces'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.align, onchange: (e) => (S.align = e.target.checked) }), 'Line up the faces'),
     h('p', { class: 'muted small' }, 'Both faces are matched for size, angle and place, so the only difference left is the result.'),
+    saveButton(async () => {
+      await saveDefaults('beforeAfter', { layout: S.layout, labels: S.labels, align: S.align });
+      await saveLabels(S);
+    }),
   );
   const ok = await modal('Before and after', body, [
     { label: 'Cancel', value: false },
@@ -327,7 +393,6 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   if (!ok) return;
   if (!S.before || !S.after) return toast('Pick a before photo and an after photo.', { error: true });
   if (!(await confirmDiscard())) return;
-  await remember(S);
   const note = toast('Lining up the faces', { sticky: true });
   try {
     const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize, align: S.align });
@@ -337,11 +402,21 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   }
 }
 
-/** The Goal preview window: one photo, which goals, how far. */
-export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
-  const { h, modal, toast, rangeField, colorRow, labelsRow, layoutSeg, pickBox } = await parts();
+/** Photos on the current page, in stacking order. */
+export const pagePhotos = () => canvas.getObjects().filter((o) => isPhoto(o) && !o.isAdjustment);
+
+/**
+ * The Touch up window. With photos on the page it works on the one picked
+ * there; with one photo it can also put the original beside it; with none it
+ * asks for a picture.
+ */
+export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }) {
+  const { h, modal, toast, rangeField, labelsRow, layoutSeg, segOf, pickBox, colorRow, saveButton } = await parts();
   const { PRESETS } = await import('./beauty.js');
-  const S = { photo: null, fixes: new Set(['slimFace']), amount: GOAL_DEFAULT, layout: 'side', labels: ['Today', 'Goal'], ...(await remembered()) };
+  const photos = state.doc ? pagePhotos() : [];
+  const S = { photo: null, ...startState('touchUp') };
+  S.fixes = new Set(S.fixes);
+  S.target = (target && photos.includes(target) ? target : photos[photos.length - 1])?.uid || null;
   const chips = h(
     'div',
     { class: 'fix-grid' },
@@ -349,32 +424,58 @@ export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
       h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id))) }, PRESETS[id].label),
     ),
   );
+  const pairBits = h('div', { class: 'stack gap ba-pair' }, h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)), labelsRow(S));
+  const sideBySide = () => !photos.length || (photos.length === 1 && S.sideBySide);
+  const sync = () => (pairBits.hidden = !sideBySide());
+  let source;
+  if (!photos.length) source = pickBox(S, 'photo', 'Patient photo', pickPhoto);
+  else if (photos.length === 1)
+    source = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.sideBySide, onchange: (e) => ((S.sideBySide = e.target.checked), sync()) }), 'Keep the original beside it');
+  else
+    source = h(
+      'div',
+      { class: 'field-row' },
+      h('span', { class: 'label' }, 'Photo'),
+      segOf(S, 'target', photos.map((o, i) => [o.uid, o.name || `Photo ${i + 1}`])),
+    );
+  sync();
   const body = h(
     'div',
     { class: 'stack gap ba-dialog' },
-    pickBox(S, 'photo', 'Patient photo', pickPhoto),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Goal'), chips),
+    source,
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Touch up'), chips),
     rangeField('Amount', S.amount, (v) => (S.amount = v), { min: 0, max: 100 }),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)),
-    labelsRow(S),
-    colorRow('Labels', S.labelColors),
+    pairBits,
     colorRow('Tag', S.tagColors),
     rangeField('Tag size', S.tagSize, (v) => (S.tagSize = v), { min: 30, max: 150, suffix: '%' }),
-    h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the goal photo afterwards to fine tune each fix. The Simulated goal tag and the labels are layers you can drag anywhere.'),
+    h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the photo afterwards to fine tune each fix. The Simulated goal tag and the labels are layers you can drag anywhere.'),
+    saveButton(async () => {
+      await saveDefaults('touchUp', { fixes: [...S.fixes], amount: S.amount, sideBySide: S.sideBySide, layout: S.layout, labels: S.labels });
+      await saveLabels(S);
+      await saveTag(S);
+    }),
   );
-  const ok = await modal('Goal preview', body, [
+  const ok = await modal('Touch up', body, [
     { label: 'Cancel', value: false },
-    { label: 'Create', value: true, primary: true },
+    { label: 'Apply', value: true, primary: true },
   ]);
   if (!ok) return;
-  if (!S.photo) return toast('Pick the patient photo.', { error: true });
-  if (!S.fixes.size) return toast('Pick at least one goal.', { error: true });
-  if (!(await confirmDiscard())) return;
-  await remember(S);
-  const note = toast('Making the goal', { sticky: true });
+  if (!S.fixes.size) return toast('Pick at least one touch up.', { error: true });
+  const opts = { fixes: [...S.fixes], amount: S.amount, tagColors: S.tagColors, tagSize: S.tagSize };
+  const pair = { layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize };
+  let photo = S.photo;
+  if (!photos.length && !photo) return toast('Pick the patient photo.', { error: true });
+  if (sideBySide()) {
+    if (photos.length === 1) {
+      const o = photos[0];
+      photo = { url: o.beautyBase || o.getSrc(), name: o.sourceName || o.name || 'Photo' };
+    }
+    if (!(await confirmDiscard())) return;
+  }
+  const note = toast('Touching up', { sticky: true });
   try {
-    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], amount: S.amount, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize, tagColors: S.tagColors, tagSize: S.tagSize });
-    toast(r.faces || !S.fixes.has('slimFace') ? 'Goal preview made.' : 'No face found, so only the body and colour goals ran.');
+    const r = sideBySide() ? await makeTouchUpPair({ photo, ...opts, ...pair }) : await touchUpLayer(photos.find((o) => o.uid === S.target), opts);
+    toast(r.faces || !S.fixes.has('slimFace') ? 'Touched up.' : 'No face found, so only the body and colour touch ups ran.');
   } catch (e) {
     toast(e.message || String(e), { error: true });
   } finally {

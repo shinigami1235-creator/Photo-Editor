@@ -178,7 +178,7 @@ Fine tune opens a slider for each fix, 0 to 100, for when the one-click amount i
 
 Faces are found automatically, every face in the photo. Fixes that need a face skip photos without one and the message says so. Times on a laptop without a graphics card: Smooth skin, Slim face, Bright eyes and Whiten teeth take 5 to 15 seconds, Slim body and Enhance faces up to a minute. A graphics card cuts that down a lot.
 
-Keep these off the treatment result in clinic before-and-after photos. Light, crop and lining up the faces are fine. Slimming or smoothing the after photo changes the result patients are shown. To show what a program can achieve, use Goal preview in the File menu, which marks the edited side as a simulation.
+Keep these off the treatment result in clinic before-and-after photos. Light, crop and lining up the faces are fine. Slimming or smoothing the after photo changes the result patients are shown. To show what a program can achieve, use Touch up, which marks the touched-up photo as a simulation.
 
 ## Upscale
 
@@ -296,8 +296,14 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 ## Templates and before-and-after
 
 - **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide), the two labels and their colours, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
-- **Goal preview (File menu):** for right after a session, when the result can't be seen yet. Pick the patient photo, the goals (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Create. You get the photo today beside a simulated goal with a Simulated goal tag at the top of the goal side. Amount starts at 40, and even 100 stays within what a program can reach, so the patient still looks like themselves. Face goals zoom in on the face and body goals show the whole photo. Select the goal photo afterwards and Fine tune under Quick fixes adjusts each fix on its own.
-- **Labels and the tag:** each is a layer you can drag anywhere, so move it off anything you want the patient to see. Select one to change its words, box colour and word colour in Properties, or press Delete to remove it. Label opacity in either window sets how strong Before/After or Today/Goal show, from 0 (hidden) to 100, and starts at 0. Label size and Tag size shrink them when the photo is zoomed in and they'd cover something worth showing. After the design is made, select any label and use All labels opacity and All labels size to change them all together, or select the tag for its own Size. With nothing selected, the label sliders are under Labels in Properties. Untick Show labels to leave them out altogether. The Simulated goal tag has its own Opacity in Properties. The colours you pick are remembered for next time, so set them once to the clinic's theme. The Simulated goal tag is what keeps a goal preview honest when it gets forwarded, so move or recolour it rather than deleting it.
+- **Opening two pictures:** pick two pictures in File > Open and they open side by side in one design with the faces lined up, in your saved Before and after layout.
+- **Touch up:** for right after a session, when the result can't be seen yet. Select a photo and press Touch up at the top of Properties (it's also in the Image menu, and with nothing selected it's under the page settings). Pick the touch ups (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Apply. The photo gets a Simulated goal tag in its top corner.
+  - With two or more photos on the page, pick which one under Photo. Only that one changes.
+  - With one photo, tick Keep the original beside it to get the untouched photo next to the touched-up copy as a new design, with Today and Goal labels. Face touch ups zoom in on the face and body ones show the whole photo.
+  - With nothing open, it asks for a picture.
+  - Amount starts at 40, and even 100 stays within what a program can reach, so the patient still looks like themselves. Select the photo afterwards and Fine tune under Quick fixes adjusts each fix on its own.
+- **Labels and the tag:** each is a layer you can drag anywhere, so move it off anything you want the patient to see. Select one to change its words, box colour and word colour in Properties, or press Delete to remove it. Label opacity sets how strong Before/After or Today/Goal show, from 0 (hidden) to 100, and starts at 0. Label size and Tag size shrink them when the photo is zoomed in and they'd cover something worth showing. After the design is made, select any label and use All labels opacity and All labels size to change them all together, or select the tag for its own Size. With nothing selected, the label sliders are under Labels in Properties. Untick Show labels to leave them out altogether. The Simulated goal tag has its own Opacity in Properties. It's what keeps a touched-up picture honest when it gets forwarded, so move or recolour it rather than deleting it.
+- **Save as default:** the Touch up and Before and after windows, the labels and tag in Properties, and Fine tune under Quick fixes each have a Save as default button. It keeps what you set (touch ups, amount, layout, labels, colours, opacity, sizes, and the amount each Quick fixes button applies), so every new file and every batch Claude runs starts from there.
 - **Before and after templates:** Side by side, Top and bottom, and Split. Each has two frames of the same size with BEFORE and AFTER labels. It fills an empty page, or goes on a new page after the current one. Drop a photo on each frame.
 - **Save page as template (File menu):** keeps the current page. Click a template to add it as a new page.
 
@@ -380,7 +386,7 @@ It also works through whole folders. Things you can ask:
 - "Glow up every photo in Desktop\Shoot 12 and save them in a new folder."
 - "In Clients\Botox October, pair each before with its after and make side by side before and afters, labelled Before and 2 weeks. Name each file after the client."
 - "Slim face and smooth skin on the selected photo, then export it as a JPG next to the original."
-- "Make slim body goal previews for everyone in Consults\Week 1 with the tag in our navy, and save them in a Goals folder."
+- "Touch up everyone in Consults\Week 1 with slim body, original beside each, and save them in a Touch ups folder."
 
 For groups it lists the folder, works out the pairs from the file names, runs them in one go and saves a picture plus an editable .zip for each. It tells you which pairs had no face to line up and which files it skipped. Any Claude app with the connector below added can do this.
 
@@ -417,7 +423,7 @@ On a Mac the path is the folder where you keep Photo Editing, such as `/Users/yo
 - It opens files, saves designs and exports pictures only at the paths it names in the chat.
 - It will not replace a file that already exists or close a design with unsaved changes unless you tell it to.
 - It saves batch results as new files and never changes the originals.
-- It won't slim, smooth or reshape the after photo of a treatment to make the result look bigger, and won't make a before photo look worse. For a simulated goal it uses Goal preview, which keeps the Simulated goal tag on.
+- It won't slim, smooth or reshape the after photo of a treatment to make the result look bigger, and won't make a before photo look worse. For a simulated goal it uses Touch up, which keeps the Simulated goal tag on.
 - File pickers, batch export, Make other sizes, adding fonts, retouch painting and the cut-out editor stay with you. Claude asks you to do those.
 - When Photo Editor is closed or the switch is off, Claude says so and stops.
 

@@ -10,6 +10,8 @@ import { defineCommands } from './commands.js';
 import { photoTarget } from './adjustpanel.js';
 import { autoSettings, adjustPixels, NEUTRAL as ADJ_NEUTRAL } from './adjust.js';
 import { FIXES, PRESETS, NONE, applyFixes, renderFixes } from './beauty.js';
+import { defaults, saveDefaults } from './defaults.js';
+import { runCommand } from './commands.js';
 
 let busy = false;
 export const isBusy = () => busy;
@@ -39,12 +41,21 @@ export function glowLook(source, before = {}) {
   };
 }
 
+/** What one button applies: the built-in amounts, or the ones saved as default. Glow up keeps its own mix. */
+export function presetSet(id) {
+  const set = { ...PRESETS[id].set };
+  if (id === 'glow') return set;
+  const q = defaults('quickFix');
+  for (const k of Object.keys(set)) if (q[k] > 0) set[k] = q[k];
+  return set;
+}
+
 /** Amounts for a set of fix ids, scaled by `k`, with exact `amounts` on top. */
 export function settingsFor(ids = [], amounts = null, k = 1) {
   const s = { ...NONE };
   for (const id of ids) {
     if (!PRESETS[id]) throw new Error(`Unknown fix ${id}. Fixes: ${Object.keys(PRESETS).join(', ')}.`);
-    for (const [key, v] of Object.entries(PRESETS[id].set)) s[key] = Math.max(s[key], Math.min(100, Math.round(v * k)));
+    for (const [key, v] of Object.entries(presetSet(id))) s[key] = Math.max(s[key], Math.min(100, Math.round(v * k)));
   }
   for (const [key, v] of Object.entries(amounts || {})) {
     if (!(key in NONE)) throw new Error(`Unknown amount ${key}. Amounts: ${Object.keys(NONE).join(', ')}.`);
@@ -86,7 +97,7 @@ export async function quickFix(o, ids = [], { on = 'toggle', amounts = null, qui
     const p = PRESETS[id];
     if (!p) throw new Error(`Unknown fix ${id}. Fixes: ${Object.keys(PRESETS).join(', ')}.`);
     const turnOn = on === 'toggle' ? !wasOn.includes(id) : !!on;
-    for (const [k, v] of Object.entries(p.set)) s[k] = turnOn ? Math.max(s[k], v) : 0;
+    for (const [k, v] of Object.entries(presetSet(id))) s[k] = turnOn ? Math.max(s[k], v) : 0;
     if (id === 'glow') glow = turnOn;
   }
   if (amounts)
@@ -169,10 +180,29 @@ export function quickPanel(o, rerender) {
     FIXES.map((f) =>
       rangeField(f.label, s[f.id], (v, commit) => commit && run([], { amounts: { [f.id]: v } }), { min: 0, max: 100 }),
     ),
-    h('button', { class: 'btn small', disabled: busy || !o.beauty, onclick: () => run(Object.keys(PRESETS), { on: false }) }, 'Take all off'),
+    h(
+      'div',
+      { class: 'row' },
+      h('button', { class: 'btn small grow', disabled: busy || !o.beauty, onclick: () => run(Object.keys(PRESETS), { on: false }) }, 'Take all off'),
+      h(
+        'button',
+        {
+          class: 'btn small grow',
+          title: 'The buttons above apply these amounts from now on',
+          onclick: async () => {
+            const keep = Object.fromEntries(Object.entries(current(o)).filter(([, v]) => v > 0));
+            if (!Object.keys(keep).length) return toast('Set a slider above 0 first.', { error: true });
+            await saveDefaults('quickFix', keep);
+            toast('Saved as default. The Quick fixes buttons now apply these amounts.');
+          },
+        },
+        'Save as default',
+      ),
+    ),
   );
   return section(
     'Quick fixes',
+    h('button', { class: 'btn primary wide touch-btn', disabled: busy, title: 'Touch up this photo, or put a touched-up copy beside it', onclick: () => runCommand('image.touchUp') }, 'Touch up'),
     h('div', { class: 'fix-grid' }, ['glow', 'smooth', 'slimFace', 'slimBody', 'enhance', 'eyes', 'teeth'].map(chip)),
     h(
       'button',

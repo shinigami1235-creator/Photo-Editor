@@ -23,7 +23,8 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { toast } from './ui.js';
 import { quickFix, activeFixes, settingsFor, renderLook } from './quickfix.js';
 import { detectFaces } from './faces.js';
-import { makeBeforeAfter, makeGoalPreview, LAYOUTS, GOAL_MAX, GOAL_DEFAULT } from './beforeafter.js';
+import { makeBeforeAfter, makeTouchUpPair, touchUpLayer, pagePhotos, LAYOUTS, GOAL_MAX } from './beforeafter.js';
+import { defaults } from './defaults.js';
 import { updateBadge, setLabelOpacity, setLabelSize, setBadgeSize, pageLabels } from './badge.js';
 import { listDir } from './platform.js';
 import { loadImage } from './assets.js';
@@ -517,11 +518,12 @@ const TOOLS = {
   },
 
   async before_after(args) {
-    const { before, after, layout = 'side', labels = ['Before', 'After'], align_faces = true, name, discard_changes = false } = args;
+    const B = defaults('beforeAfter');
+    const { before, after, layout = B.layout, labels = defaults('labels').show ? B.labels : [], align_faces = B.align, name, discard_changes = false } = args;
     if (!before || !after) fail('Give full paths for the before photo and the after photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await pairDesign({ before, after, layout, labels, align_faces, name, labelColors: labelColors(args), labelOpacity: await labelOpacityOf(args), labelSize: (await labelSizes(args)).labelSize });
+    const r = await pairDesign({ before, after, layout, labels, align_faces, name, ...labelOptions(args) });
     say('before and after made');
     return { text: JSON.stringify({ design: state.doc.name, ...r, layers: layersJson() }) };
   },
@@ -569,7 +571,8 @@ const TOOLS = {
   },
 
   async batch_before_after(args) {
-    const { pairs = [], output_folder, layout = 'side', labels = ['Before', 'After'], align_faces = true, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
+    const B = defaults('beforeAfter');
+    const { pairs = [], output_folder, layout = B.layout, labels = defaults('labels').show ? B.labels : [], align_faces = B.align, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
     if (!pairs.length) fail('Give pairs as [{ before, after, name }] with full paths.');
     if (!output_folder) fail('Give the folder to save the results in.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
@@ -588,7 +591,7 @@ const TOOLS = {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem, labelColors: labelColors(args), labelOpacity: await labelOpacityOf(args), labelSize: (await labelSizes(args)).labelSize });
+        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem, ...labelOptions(args) });
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -618,39 +621,62 @@ const TOOLS = {
     return { text: `Set ${n} label${n === 1 ? '' : 's'}${opacity != null ? ` to ${opacity}% opacity` : ''}${opacity != null && size != null ? ' and' : ''}${size != null ? ` to ${size}% size` : ''}.` };
   },
 
-  async goal_preview(args) {
-    const { photo, layout = 'side', labels = ['Today', 'Goal'], name, discard_changes = false } = args;
-    if (!photo) fail('Give the full path of the patient photo.');
+  async touch_up(args) {
+    const D = defaults('touchUp');
+    const { id, photo, side_by_side = D.sideBySide, layout = D.layout, labels = D.labels, name, discard_changes = false } = args;
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
-    const opts = goalOptions(args);
-    if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await makeGoalPreview({ photo: await loadPath(photo), ...opts, labelOpacity: await labelOpacityOf(args), ...(await labelSizes(args)), layout, labels, name });
-    say('goal preview made');
-    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The goal side carries a Simulated goal tag. Keep it on whenever the picture is shown. Fine tune the goal with retouch on goal_layer and amounts, and move the tag or labels with set_layer.', layers: layersJson() }) };
+    const opts = touchOptions(args);
+    let r;
+    if (id) {
+      const o = layer(id);
+      if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Touch up works on photos.`);
+      if (side_by_side && pagePhotos().length === 1) {
+        if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true, or pass side_by_side false to touch up this photo where it is.');
+        r = await makeTouchUpPair({ photo: { url: o.beautyBase || o.getSrc(), name: o.sourceName || o.name || 'Photo' }, ...opts, ...pairOptions(args), layout, labels, name });
+      } else r = await touchUpLayer(o, opts);
+    } else {
+      if (!photo) fail('Give id for a photo in the open design, or photo with the full path of a picture.');
+      if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
+      if (side_by_side) r = await makeTouchUpPair({ photo: await loadPath(photo), ...opts, ...pairOptions(args), layout, labels, name });
+      else {
+        await host.openBytes({ name: baseName(photo), path: isDesktop ? photo : null, bytes: await readFileAt(photo) });
+        r = await touchUpLayer(pagePhotos()[0], opts);
+      }
+    }
+    say('touched up');
+    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The touched-up photo carries a Simulated goal tag. Keep it on whenever the picture is shown. Fine tune with retouch on the photo layer and amounts, and move or resize the tag and labels with set_layer and set_labels.', layers: layersJson() }) };
   },
 
-  async batch_goal_preview(args) {
-    const { photos = [], output_folder, layout = 'side', labels = ['Today', 'Goal'], format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
+  async batch_touch_up(args) {
+    const D = defaults('touchUp');
+    const { photos = [], output_folder, side_by_side = D.sideBySide, layout = D.layout, labels = D.labels, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
     if (!photos.length) fail('Give the patient photos as full paths.');
     if (!output_folder) fail('Give the folder to save the results in.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
-    const opts = goalOptions(args);
+    const opts = touchOptions(args);
+    const pair = pairOptions(args);
     const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
     if (!MIME[fmt]) fail('format is png, jpg or webp.');
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
     const results = [];
     for (let i = 0; i < photos.length; i++) {
       const item = typeof photos[i] === 'string' ? { photo: photos[i] } : photos[i];
-      const stem = (item.name || `${baseName(item.photo).replace(/\.[^.]+$/, '')} goal preview`).replace(/[\\/:*?"<>|]+/g, '-');
+      const stem = (item.name || `${baseName(item.photo).replace(/\.[^.]+$/, '')} touch up`).replace(/[\\/:*?"<>|]+/g, '-');
       const picture = joinPath(output_folder, `${stem}.${fmt}`);
       const design = joinPath(output_folder, `${stem}.zip`);
-      say(`goal preview ${i + 1} of ${photos.length}`);
+      say(`touch up ${i + 1} of ${photos.length}`);
       try {
         if (!overwrite && ((await exists(picture)) || (save_designs && (await exists(design))))) {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await makeGoalPreview({ photo: await loadPath(item.photo), ...opts, labelOpacity: await labelOpacityOf(args), ...(await labelSizes(args)), layout, labels: item.labels || labels, name: stem });
+        let r;
+        if (side_by_side) r = await makeTouchUpPair({ photo: await loadPath(item.photo), ...opts, ...pair, layout, labels: item.labels || labels, name: stem });
+        else {
+          await host.openBytes({ name: baseName(item.photo), path: null, bytes: await readFileAt(item.photo) });
+          state.doc.name = stem;
+          r = await touchUpLayer(pagePhotos()[0], opts);
+        }
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -666,6 +692,14 @@ const TOOLS = {
       }
     }
     return { text: JSON.stringify({ results }) };
+  },
+
+  // Earlier names, kept so older instructions still work.
+  async goal_preview(args) {
+    return TOOLS.touch_up({ ...args, side_by_side: true });
+  },
+  async batch_goal_preview(args) {
+    return TOOLS.batch_touch_up({ ...args, side_by_side: true });
   },
 
   async export_image({ path, format, scale = 1, quality = 0.92, transparent = false, pages = 'current', overwrite = false }) {
@@ -692,33 +726,40 @@ const TOOLS = {
 const FIX_ALIAS = { glow_up: 'glow', glowup: 'glow', glow: 'glow', smooth_skin: 'smooth', smoothen: 'smooth', smooth: 'smooth', skin: 'smooth', slim_face: 'slimFace', slimface: 'slimFace', face: 'slimFace', slim_body: 'slimBody', slimbody: 'slimBody', body: 'slimBody', enhance_faces: 'enhance', enhance: 'enhance', restore: 'enhance', bright_eyes: 'eyes', eyes: 'eyes', whiten_teeth: 'teeth', teeth: 'teeth' };
 
 // Label opacity: what the call gives, or what Gid last picked in the windows.
-async function labelSizes(a) {
-  const saved = await dataReadJson('settings/beforeafter.json', {});
-  const pick = (v, fallback, what) => {
-    if (v == null) return fallback ?? 100;
-    if (!(v >= 30 && v <= 150)) fail(`${what} is 30 to 150 percent.`);
-    return +v;
+// Settings from the call, with Gid's saved defaults filling the rest.
+const pct = (v, what, lo, hi) => {
+  if (v == null) return undefined;
+  if (!(v >= lo && v <= hi)) fail(`${what} is ${lo} to ${hi}.`);
+  return +v;
+};
+
+function labelOptions(a) {
+  const L = defaults('labels');
+  return {
+    labelColors: { fill: a.label_box_color || L.fill, color: a.label_color || L.color },
+    labelOpacity: pct(a.label_opacity, 'label_opacity', 0, 100) ?? L.opacity,
+    labelSize: pct(a.label_size, 'label_size', 30, 150) ?? L.size,
   };
-  return { labelSize: pick(a.label_size, saved.labelSize, 'label_size'), tagSize: pick(a.tag_size, saved.tagSize, 'tag_size') };
 }
 
-async function labelOpacityOf(a) {
-  if (a.label_opacity != null) {
-    if (!(a.label_opacity >= 0 && a.label_opacity <= 100)) fail('label_opacity is 0 to 100.');
-    return +a.label_opacity;
-  }
-  return (await dataReadJson('settings/beforeafter.json', {})).labelOpacity ?? 0;
+function pairOptions(a) {
+  const L = defaults('labels');
+  return { ...labelOptions(a), ...(a.labels == null && !L.show ? { labels: [] } : {}) };
 }
 
-const labelColors = (a) => ({ ...(a.label_box_color ? { fill: a.label_box_color } : {}), ...(a.label_color ? { color: a.label_color } : {}) });
-const tagColors = (a) => ({ ...(a.tag_box_color ? { fill: a.tag_box_color } : {}), ...(a.tag_color ? { color: a.tag_color } : {}) });
-
-function goalOptions(a) {
-  const fixes = fixIds(a.fixes || ['slim_face']);
-  for (const f of fixes) if (!GOAL_MAX[f]) fail(`Goals are slim_face, slim_body, smooth and glow, not ${f}.`);
-  const amount = a.amount ?? GOAL_DEFAULT;
-  if (!(amount >= 0 && amount <= 100)) fail('amount is 0 to 100.');
-  return { fixes, amount, amounts: a.amounts, labelColors: labelColors(a), tagColors: tagColors(a), tag: a.tag_text || 'Simulated goal' };
+function touchOptions(a) {
+  const D = defaults('touchUp');
+  const T = defaults('tag');
+  const fixes = fixIds(a.fixes || D.fixes);
+  for (const f of fixes) if (!GOAL_MAX[f]) fail(`Touch ups are slim_face, slim_body, smooth and glow, not ${f}.`);
+  return {
+    fixes,
+    amount: pct(a.amount, 'amount', 0, 100) ?? D.amount,
+    amounts: a.amounts,
+    tag: a.tag_text || T.text,
+    tagColors: { fill: a.tag_box_color || T.fill, color: a.tag_color || T.color },
+    tagSize: pct(a.tag_size, 'tag_size', 30, 150) ?? T.size,
+  };
 }
 
 const fixIds = (fixes = []) => fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
@@ -745,7 +786,7 @@ const BLOCKED = new Map([
   ['file.home', 'Use new_design or open_file.'],
   ['file.batch', 'Gid runs batch export himself. Use batch_retouch or batch_before_after for groups of photos.'],
   ['file.beforeAfter', 'Use before_after with two paths.'],
-  ['file.goalPreview', 'Use goal_preview with the photo path.'],
+  ['image.touchUp', 'Use touch_up with a photo id or a picture path.'],
   ['file.sizes', 'Gid runs Make other sizes himself.'],
   ['file.template', 'Gid saves templates himself.'],
   ['file.print', 'Gid opens the print preview himself.'],
