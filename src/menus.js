@@ -7,7 +7,7 @@ const ADJ = ['brightness', 'levels', 'curves', 'exposure', 'vibrance', 'hsl', 'g
 export const MENUS = ({ savedSelections }) => [
   {
     name: 'File',
-    items: ['file.new', 'file.open', 'file.home', '-', 'file.save', 'file.saveas', '-', 'file.place', '-', 'file.export', 'file.batch', 'file.sizes', 'file.template', '-', 'file.check', 'file.print'],
+    items: ['file.new', 'file.open', 'file.home', '-', 'file.save', 'file.saveas', '-', 'file.place', '-', 'file.export', 'file.batch', 'file.beforeAfter', 'file.sizes', 'file.template', '-', 'file.check', 'file.print'],
   },
   {
     name: 'Edit',
@@ -49,6 +49,7 @@ export const MENUS = ({ savedSelections }) => [
       'image.restore',
       'image.behind',
       '-',
+      { label: 'Quick fixes', items: ['image.fix.glow', 'image.fix.smooth', 'image.fix.slimFace', 'image.fix.slimBody', 'image.fix.enhance', 'image.fix.eyes', 'image.fix.teeth', '-', 'image.fix.off'] },
       'image.retouch',
       'image.up2',
       'image.up4',

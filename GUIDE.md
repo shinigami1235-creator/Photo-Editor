@@ -160,6 +160,26 @@ Click a photo with the Spot heal tool (J), or press Spot heal and clone in Prope
 
 [ and ] change the brush size. Ctrl+Z undoes a stroke. Press Apply when done. Keep these tools off treatment results in before-and-after photos, since an edited result is the first thing people call out.
 
+## Quick fixes
+
+Select a photo and the Quick fixes buttons sit at the top of Properties. Click one and it runs. Click it again to take it off. They stack, so Slim face and Slim body together do both.
+
+- **Glow up:** Enhance faces, Smooth skin, Bright eyes and Whiten teeth at gentle amounts, plus softer highlights, lifted shadows, richer colour and a little warmth. A sunset stays a sunset.
+- **Smooth skin:** evens out skin and fine lines on the face. Pores and texture stay.
+- **Slim face:** pulls the jawline and cheeks in a little toward the middle of the face.
+- **Slim body:** narrows the waist, hips and legs a little and leaves the background straight. Works on one person standing.
+- **Enhance faces:** sharpens and cleans up blurry or low-quality faces with the RestoreFormer++ face model. The first use downloads it once (148 MB).
+- **Bright eyes:** lifts and sharpens the eyes only.
+- **Whiten teeth:** takes the yellow out of the teeth only.
+
+The same buttons are under Image > Quick fixes. A gold button means that fix is on. While one runs, the button shimmers and the rest wait.
+
+Fine tune opens a slider for each fix, 0 to 100, for when the one-click amount is too much or too little. Take all off puts the photo back to how it came in. Nothing is baked in: the fixes stay editable after you save and reopen the design.
+
+Faces are found automatically, every face in the photo. Fixes that need a face skip photos without one and the message says so. Times on a laptop without a graphics card: Smooth skin, Slim face, Bright eyes and Whiten teeth take 5 to 15 seconds, Slim body and Enhance faces up to a minute. A graphics card cuts that down a lot.
+
+Keep these off the treatment result in clinic before-and-after photos. Light, crop and lining up the faces are fine. Slimming or smoothing the after photo changes the result patients are shown.
+
 ## Upscale
 
 Upscale 2× and Upscale 4× under Retouch, or in the Image menu, make a small or old photo sharp enough for a bigger post or for print. The photo stays the same size on the page with more pixels in it. The result can be up to 8192 pixels wide. It takes a few seconds with a graphics card and up to a minute without one.
@@ -275,7 +295,8 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 
 ## Templates and before-and-after
 
-- **Before and after:** Side by side, Top and bottom, and Split. Each has two frames of the same size with BEFORE and AFTER labels. It fills an empty page, or goes on a new page after the current one. Drop a photo on each frame.
+- **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide) and the two labels, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
+- **Before and after templates:** Side by side, Top and bottom, and Split. Each has two frames of the same size with BEFORE and AFTER labels. It fills an empty page, or goes on a new page after the current one. Drop a photo on each frame.
 - **Save page as template (File menu):** keeps the current page. Click a template to add it as a new page.
 
 ## Rulers, guides and the safe zone
@@ -350,7 +371,15 @@ The History panel lists every step on the current page. Click a step to go back 
 
 ## Letting Claude edit for you
 
-Claude can work Photo Editor on your computer while you describe what you want in a Claude chat, such as "open the Sognare bar photo, remove the background, put it on navy and add the price in gold". It uses the same tools you do: layers, adjustments, Remove background, Text behind subject, Upscale, the menu commands, Save and Export. It looks at a preview after each change, and you can watch the edit happen and take over at any time.
+Claude can work Photo Editor on your computer while you describe what you want in a Claude chat, such as "open the Sognare bar photo, remove the background, put it on navy and add the price in gold". It uses the same tools you do: layers, adjustments, Quick fixes, Remove background, Text behind subject, Upscale, Before and after, the menu commands, Save and Export. It looks at a preview after each change, and you can watch the edit happen and take over at any time.
+
+It also works through whole folders. Things you can ask:
+
+- "Glow up every photo in Desktop\Shoot 12 and save them in a new folder."
+- "In Clients\Botox October, pair each before with its after and make side by side before and afters, labelled Before and 2 weeks. Name each file after the client."
+- "Slim face and smooth skin on the selected photo, then export it as a JPG next to the original."
+
+For groups it lists the folder, works out the pairs from the file names, runs them in one go and saves a picture plus an editable .zip for each. It tells you which pairs had no face to line up and which files it skipped. Any Claude app with the connector below added can do this.
 
 ### Switching it on
 
@@ -384,6 +413,8 @@ On a Mac the path is the folder where you keep Photo Editing, such as `/Users/yo
 
 - It opens files, saves designs and exports pictures only at the paths it names in the chat.
 - It will not replace a file that already exists or close a design with unsaved changes unless you tell it to.
+- It saves batch results as new files and never changes the originals.
+- It won't slim, smooth or reshape the after photo of a treatment to make the result look bigger, and won't make a before photo look worse.
 - File pickers, batch export, Make other sizes, adding fonts, retouch painting and the cut-out editor stay with you. Claude asks you to do those.
 - When Photo Editor is closed or the switch is off, Claude says so and stops.
 
@@ -428,6 +459,7 @@ Help > Keyboard shortcuts (?) lists every shortcut from the menus. The main ones
 | --- | --- | --- |
 | Brand kits, fonts, templates, text styles, recent designs, autosave and settings | `%APPDATA%\com.cygnussolutions.photoeditor` | `~/Library/Application Support/com.cygnussolutions.photoeditor` |
 | Background model (179 MB) | `models` inside the same folder | `models` inside the same folder |
+| Face model for Enhance faces and Glow up (148 MB) | `models` inside the same folder | `models` inside the same folder |
 | Claude connection (port and token, while switched on) | `mcp.json` inside the same folder | `mcp.json` inside the same folder |
 | Designs | wherever you save them, as .zip files | wherever you save them, as .zip files |
 

@@ -109,6 +109,29 @@ fn file_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
 
+/// Files and folders inside a folder, for the Claude connector's list_files.
+#[tauri::command]
+fn list_dir(path: String) -> Result<Vec<serde_json::Value>, String> {
+    let mut out = vec![];
+    for entry in fs::read_dir(&path).map_err(|e| format!("{path}: {e}"))? {
+        let Ok(entry) = entry else { continue };
+        let Ok(meta) = entry.metadata() else { continue };
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        out.push(serde_json::json!({
+            "name": entry.file_name().to_string_lossy(),
+            "folder": meta.is_dir(),
+            "size": meta.len(),
+            "modified": modified,
+        }));
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 fn list_fonts() -> Vec<String> {
     let mut db = fontdb::Database::new();
@@ -122,46 +145,85 @@ fn list_fonts() -> Vec<String> {
     families
 }
 
+/// A model the app downloads on first use. Each URL list is tried in order; a
+/// list with several URLs is one file split into parts, joined in order.
+struct Model {
+    file: &'static str,
+    total: u64,
+    sources: &'static [&'static [&'static str]],
+}
+
+fn model(name: Option<&str>) -> Result<Model, String> {
+    match name.unwrap_or("isnet") {
+        "isnet" => Ok(Model { file: MODEL_FILE, total: 178_648_008, sources: &[&[MODEL_URL]] }),
+        "face" => Ok(Model {
+            file: "models/restoreformer-pp-fp16.onnx",
+            total: 148_222_244,
+            sources: &[
+                &[concat!("https://raw.githubusercontent.com/shinigami1235-creator/Photo-Editor/models/face/restoreformer-pp-fp16.onnx.part", "0"),
+                  concat!("https://raw.githubusercontent.com/shinigami1235-creator/Photo-Editor/models/face/restoreformer-pp-fp16.onnx.part", "1")],
+                // The same model before trimming, at full precision.
+                &["https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/restoreformer_plus_plus.onnx"],
+            ],
+        }),
+        other => Err(format!("unknown model {other}")),
+    }
+}
+
 #[tauri::command]
-fn model_ready(app: AppHandle) -> bool {
-    data_path(&app, MODEL_FILE)
+fn model_ready(app: AppHandle, name: Option<String>) -> bool {
+    model(name.as_deref())
+        .and_then(|m| data_path(&app, m.file))
         .map(|p| p.exists())
         .unwrap_or(false)
 }
 
 #[tauri::command]
-fn model_read(app: AppHandle) -> Result<Response, String> {
-    let path = data_path(&app, MODEL_FILE)?;
+fn model_read(app: AppHandle, name: Option<String>) -> Result<Response, String> {
+    let path = data_path(&app, model(name.as_deref())?.file)?;
     fs::read(&path).map(Response::new).map_err(|e| e.to_string())
 }
 
+async fn fetch_parts(app: &AppHandle, urls: &[&str], part: &Path, total: u64) -> Result<(), String> {
+    let mut file = fs::File::create(part).map_err(|e| e.to_string())?;
+    let mut received: u64 = 0;
+    let mut last_emit: u64 = 0;
+    for url in urls {
+        let mut response = tauri_plugin_http::reqwest::get(*url)
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?;
+        let total = if urls.len() == 1 { response.content_length().unwrap_or(total) } else { total };
+        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            received += chunk.len() as u64;
+            if received - last_emit > 1_000_000 || received == total {
+                last_emit = received;
+                let _ = app.emit("model-progress", (received, total));
+            }
+        }
+    }
+    file.flush().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-async fn model_download(app: AppHandle) -> Result<(), String> {
-    let path = data_path(&app, MODEL_FILE)?;
+async fn model_download(app: AppHandle, name: Option<String>) -> Result<(), String> {
+    let m = model(name.as_deref())?;
+    let path = data_path(&app, m.file)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let part = path.with_extension("part");
-    let mut response = tauri_plugin_http::reqwest::get(MODEL_URL)
-        .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
-    let total = response.content_length().unwrap_or(0);
-    let mut file = fs::File::create(&part).map_err(|e| e.to_string())?;
-    let mut received: u64 = 0;
-    let mut last_emit: u64 = 0;
-    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-        received += chunk.len() as u64;
-        if received - last_emit > 1_000_000 || received == total {
-            last_emit = received;
-            let _ = app.emit("model-progress", (received, total));
+    let mut last_error = String::new();
+    for urls in m.sources {
+        match fetch_parts(&app, urls, &part, m.total).await {
+            Ok(()) => return fs::rename(&part, &path).map_err(|e| e.to_string()),
+            Err(e) => last_error = e,
         }
     }
-    file.flush().map_err(|e| e.to_string())?;
-    drop(file);
-    fs::rename(&part, &path).map_err(|e| e.to_string())
+    let _ = fs::remove_file(&part);
+    Err(last_error)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -178,6 +240,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             file_exists,
+            list_dir,
             bridge::mcp_start,
             bridge::mcp_stop,
             bridge::mcp_reply,

@@ -85,6 +85,8 @@ import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { MENUS } from './menus.js';
 import { init as initClaude } from './mcp.js';
+import { initQuickFixes } from './quickfix.js';
+import { beforeAfterDialog } from './beforeafter.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -1121,6 +1123,18 @@ function defineCoreCommands() {
     'image.up4': { label: 'Upscale 4×', run: () => upscalePhoto(photo(), 4).then(renderProps), enabled: () => photo() && upscaleLimit(photo()) >= 4 },
     'image.crop': { label: 'Crop photo', run: () => (setTool('crop'), photo() && enterCrop(photo())), enabled: photo },
     'image.behind': { label: 'Text behind subject', run: () => textBehindSubject(photo(), () => addText('heading')), enabled: photo },
+    'file.beforeAfter': {
+      label: 'Before and after from two photos',
+      run: () =>
+        beforeAfterDialog({
+          confirmDiscard,
+          pickPhoto: async () => {
+            const [f] = (await pickFiles({ extensions: ['png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], label: 'Images and RAW files' })) || [];
+            return f ? { name: f.name, url: await pictureUrl(f.name, f.bytes) } : null;
+          },
+        }),
+      also: 'collage compare result',
+    },
     // Layer
     'layer.text': { label: 'New text', run: () => addText('body') , enabled: doc },
     'layer.heading': { label: 'New heading', run: () => addText('heading'), enabled: doc },
@@ -1463,6 +1477,7 @@ async function start() {
   const mods = await Promise.all([import('./adjustlayers.js'), import('./layerstyles.js'), import('./transform.js'), import('./shapeops.js'), import('./preflight.js'), import('./develop-ui.js')].map((p) => p.catch((e) => (console.warn(e), null))));
   for (const m of mods) m?.init?.({ adjustmentsEl: adjEl });
 
+  initQuickFixes({ photo, rerender: () => renderProps() });
   await initClaude({ openBytes, pictureUrl, rememberRecent });
   buildMenuBar($('#menus'), MENUS({ savedSelections: savedSelectionItems }));
   buildToolColumn($('#tools'), LIBRARIES.map((l) => ({ ...l, open: () => openLibrary(l.id) })));

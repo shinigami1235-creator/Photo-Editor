@@ -21,6 +21,13 @@ import { NEUTRAL, BANDS, autoSettings } from './adjust.js';
 import { BLEND_MODES } from './layerfx.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { toast } from './ui.js';
+import { NEUTRAL as ADJ_NEUTRAL, adjustPixels } from './adjust.js';
+import { quickFix, activeFixes, glowLook } from './quickfix.js';
+import { PRESETS, NONE as FIX_NONE, renderFixes } from './beauty.js';
+import { detectFaces } from './faces.js';
+import { makeBeforeAfter, LAYOUTS } from './beforeafter.js';
+import { listDir } from './platform.js';
+import { loadImage } from './assets.js';
 
 let host = {};
 let enabled = false;
@@ -480,6 +487,127 @@ const TOOLS = {
     return { text: `Saved ${p}.` };
   },
 
+  async retouch({ id, fixes = [], on = true, amounts }) {
+    const o = layer(id);
+    if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Quick fixes work on photos.`);
+    const ids = fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
+    say(`quick fixes: ${ids.join(', ') || 'amounts'}`);
+    const r = await quickFix(o, ids, { on, amounts });
+    return { text: JSON.stringify({ message: r.message, faces: r.faces, amounts: r.settings, on: activeFixes(o) }) };
+  },
+
+  async detect_faces({ id }) {
+    const o = layer(id);
+    if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Faces are found in photos.`);
+    const src = o.beautyBase || o.getSrc();
+    const faces = await detectFaces(await loadImage(src), { key: src });
+    return {
+      text: JSON.stringify({
+        faces: faces.map((f) => ({ x: Math.round(f.box.x), y: Math.round(f.box.y), width: Math.round(f.box.w), height: Math.round(f.box.h), eye_distance: Math.round(f.parts.eyeDist), tilt_degrees: round((f.parts.angle * 180) / Math.PI), score: round(f.score) })),
+        note: 'Positions are in the photo\'s own pixels.',
+      }),
+    };
+  },
+
+  async before_after({ before, after, layout = 'side', labels = ['Before', 'After'], align_faces = true, name, discard_changes = false }) {
+    if (!before || !after) fail('Give full paths for the before photo and the after photo.');
+    if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
+    if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
+    const r = await pairDesign({ before, after, layout, labels, align_faces, name });
+    say('before and after made');
+    return { text: JSON.stringify({ design: state.doc.name, ...r, layers: layersJson() }) };
+  },
+
+  async list_files({ folder, extensions, include_folders = false }) {
+    if (!folder) fail('Give the full path of a folder.');
+    if (!isDesktop) fail('Folders can only be listed in the desktop app.');
+    const exts = (extensions || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'tif', 'tiff', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'raf', 'orf', 'rw2', 'zip']).map((e) => String(e).toLowerCase().replace(/^\./, ''));
+    const all = await listDir(folder);
+    const list = all
+      .filter((f) => (f.folder ? include_folders : exts.includes((f.name.split('.').pop() || '').toLowerCase())))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+      .map((f) => ({ name: f.name, path: joinPath(folder, f.name), folder: f.folder || undefined, size_kb: f.folder ? undefined : Math.round(f.size / 1024), modified: new Date(f.modified).toISOString().slice(0, 16).replace('T', ' ') }));
+    return { text: JSON.stringify({ folder, count: list.length, files: list }) };
+  },
+
+  async batch_retouch({ files = [], fixes = [], amounts, output_folder, suffix = '-retouched', format = 'jpg', quality = 0.92, overwrite = false }) {
+    if (!files.length) fail('Give the photos to retouch as full paths.');
+    if (!output_folder) fail('Give the folder to save the results in.');
+    const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
+    if (!MIME[fmt]) fail('format is png, jpg or webp.');
+    const ids = fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
+    const settings = { ...FIX_NONE };
+    for (const id of ids) {
+      if (!PRESETS[id]) fail(`Unknown fix ${id}. Fixes: ${Object.keys(PRESETS).join(', ')}.`);
+      for (const [k, v] of Object.entries(PRESETS[id].set)) settings[k] = Math.max(settings[k], v);
+    }
+    Object.assign(settings, amounts || {});
+    const done = [];
+    for (let i = 0; i < files.length; i++) {
+      const path = files[i];
+      say(`retouching ${i + 1} of ${files.length}`);
+      const stem = baseName(path).replace(/\.[^.]+$/, '');
+      const outPath = joinPath(output_folder, `${stem}${suffix}.${fmt}`);
+      if (!overwrite && (await exists(outPath))) {
+        done.push({ file: path, skipped: `${outPath} already exists` });
+        continue;
+      }
+      try {
+        const img = await loadImage(await host.pictureUrl(baseName(path), await readFileAt(path)));
+        const r = await renderFixes(img, settings, { key: path });
+        if (ids.includes('glow')) {
+          const x = r.canvas.getContext('2d', { willReadFrequently: true });
+          const d = x.getImageData(0, 0, r.canvas.width, r.canvas.height);
+          adjustPixels(d.data, d.width, d.height, { ...ADJ_NEUTRAL, ...glowLook(r.canvas) });
+          x.putImageData(d, 0, 0);
+        }
+        await writeFile(outPath, await encodeCanvas(r.canvas, { format: fmt, quality: +quality }), MIME[fmt]);
+        done.push({ file: path, saved: outPath, faces: r.faces });
+      } catch (e) {
+        done.push({ file: path, error: e.message || String(e) });
+      }
+    }
+    say(`retouched ${done.filter((d) => d.saved).length} of ${files.length}`);
+    return { text: JSON.stringify({ results: done }) };
+  },
+
+  async batch_before_after({ pairs = [], output_folder, layout = 'side', labels = ['Before', 'After'], align_faces = true, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false }) {
+    if (!pairs.length) fail('Give pairs as [{ before, after, name }] with full paths.');
+    if (!output_folder) fail('Give the folder to save the results in.');
+    if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
+    const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
+    if (!MIME[fmt]) fail('format is png, jpg or webp.');
+    if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
+    const results = [];
+    for (let i = 0; i < pairs.length; i++) {
+      const p = pairs[i];
+      const stem = (p.name || `${baseName(p.after).replace(/\.[^.]+$/, '')} before and after`).replace(/[\\/:*?"<>|]+/g, '-');
+      const picture = joinPath(output_folder, `${stem}.${fmt}`);
+      const design = joinPath(output_folder, `${stem}.zip`);
+      say(`before and after ${i + 1} of ${pairs.length}`);
+      try {
+        if (!overwrite && ((await exists(picture)) || (save_designs && (await exists(design))))) {
+          results.push({ name: stem, skipped: 'already exists' });
+          continue;
+        }
+        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem });
+        syncCurrentPage();
+        const el = await renderPage(currentPage(), 1);
+        await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
+        if (save_designs) {
+          await writeFile(design, await buildZip(state.doc), 'application/zip');
+          if (isDesktop) state.path = design;
+          state.dirty = false;
+          emit('dirty');
+        }
+        results.push({ name: stem, picture, design: save_designs ? design : undefined, faces_lined_up: r.aligned, faces_found: r.faces });
+      } catch (e) {
+        results.push({ name: stem, error: e.message || String(e) });
+      }
+    }
+    return { text: JSON.stringify({ results }) };
+  },
+
   async export_image({ path, format, scale = 1, quality = 0.92, transparent = false, pages = 'current', overwrite = false }) {
     if (!path) fail('Give a full path for the picture, or a folder when exporting all pages.');
     const fmt = (format || (path.match(/\.(png|jpe?g|webp)$/i)?.[1] || 'png')).toLowerCase().replace('jpeg', 'jpg');
@@ -499,6 +627,17 @@ const TOOLS = {
   },
 };
 
+
+// Short names a person or another assistant might use for the fixes.
+const FIX_ALIAS = { glow_up: 'glow', glowup: 'glow', glow: 'glow', smooth_skin: 'smooth', smoothen: 'smooth', smooth: 'smooth', skin: 'smooth', slim_face: 'slimFace', slimface: 'slimFace', face: 'slimFace', slim_body: 'slimBody', slimbody: 'slimBody', body: 'slimBody', enhance_faces: 'enhance', enhance: 'enhance', restore: 'enhance', bright_eyes: 'eyes', eyes: 'eyes', whiten_teeth: 'teeth', teeth: 'teeth' };
+
+async function pairDesign({ before, after, layout, labels, align_faces, name }) {
+  const load = async (path) => ({ name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) });
+  const [b, a] = await Promise.all([load(before), load(after)]);
+  const r = await makeBeforeAfter({ before: b, after: a, layout, labels, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
+  return { aligned: r.aligned, faces: r.faces, layout, size: r.size };
+}
+
 // Commands that open a picker or a window. Each points at the tool to use instead.
 const BLOCKED = new Map([
   ['file.open', 'Use open_file with a path.'],
@@ -508,7 +647,8 @@ const BLOCKED = new Map([
   ['file.export', 'Use export_image.'],
   ['file.new', 'Use new_design.'],
   ['file.home', 'Use new_design or open_file.'],
-  ['file.batch', 'Gid runs batch export himself.'],
+  ['file.batch', 'Gid runs batch export himself. Use batch_retouch or batch_before_after for groups of photos.'],
+  ['file.beforeAfter', 'Use before_after with two paths.'],
   ['file.sizes', 'Gid runs Make other sizes himself.'],
   ['file.template', 'Gid saves templates himself.'],
   ['file.print', 'Gid opens the print preview himself.'],

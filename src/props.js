@@ -26,6 +26,7 @@ import { viewSettings, toggleRulers, toggleSafeZone, clearGuides } from './ruler
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { drawAdjustmentProps } from './adjustlayers.js';
+import { quickPanel } from './quickfix.js';
 
 // The right-hand panel: settings for whatever is selected, or the page.
 
@@ -459,6 +460,7 @@ function drawPhoto(o) {
       ),
       h('p', { class: 'muted small' }, 'Side handles crop the photo. Double-click to move it inside the frame. Rotate and flip turn the photo while the frame stays put.'),
     ),
+    quickPanel(o, render),
     section(
       'Background',
       o.originalSrc

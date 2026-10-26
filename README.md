@@ -22,6 +22,8 @@ The Mac app needs macOS 12 or newer. It is not signed with an Apple developer ac
 ## Models
 
 - **Background removal:** the ISNet general-use model (179 MB, Apache 2.0) downloads from the rembg releases on GitHub the first time Remove background or Select subject is used, and stays in the app's data folder. It runs on the graphics card through WebGPU, or on the CPU when WebGPU is not there.
+- **Faces:** face-api (@vladmandic/face-api, MIT) finds faces and 68 points on each, with its SSD MobileNet and 68-point landmark models in `public/models/face` (6 MB). Faces are straightened to the FFHQ 512 layout the same way CodeFormer does it, worked on, and pasted back through a soft oval.
+- **Enhance faces:** RestoreFormer++ (Apache 2.0), converted from the facefusion ONNX export: debug outputs removed, simplified and stored as fp16 (148 MB). It downloads the first time Enhance faces or Glow up runs, from the `models` branch of this repo in two parts, with the facefusion fp32 file as the fallback. It was trained on FFHQ, whose photos are under their own licences, which matters only if the editor is ever sold. CodeFormer was studied for the method but not used, since its S-Lab licence rules out commercial use.
 - **Upscale:** Real-ESRGAN general x4v3 (4.9 MB, BSD 3-Clause) ships inside the app as `public/models/upscale-x4.onnx`. It was converted from the original `realesr-general-x4v3.pth` release weights.
 
 ## Print colours
@@ -47,7 +49,7 @@ Shape combining uses polygon-clipping (MIT).
 
 ## Claude connector
 
-`mcp/photo-editor-mcp.mjs` is an MCP server with no packages, started by the Claude desktop app with `node`. It reads `mcp.json` from the app data folder for the port and token, then sends each tool call to `POST http://127.0.0.1:<port>/rpc`. `src-tauri/src/bridge.rs` runs that server only while Help > Let Claude control this app is ticked. It binds to 127.0.0.1, makes a new random token on each start, refuses requests with a wrong token or an `Origin` header, and hands each request to the editor window as an `mcp-request` event. `src/mcp.js` runs the tool and answers through `mcp_reply`. The setup steps are in GUIDE.md under Letting Claude edit for you.
+`mcp/photo-editor-mcp.mjs` is an MCP server with no packages, started by the Claude desktop app with `node`. It reads `mcp.json` from the app data folder for the port and token, then sends each tool call to `POST http://127.0.0.1:<port>/rpc`. `src-tauri/src/bridge.rs` runs that server only while Help > Let Claude control this app is ticked. It binds to 127.0.0.1, makes a new random token on each start, refuses requests with a wrong token or an `Origin` header, and hands each request to the editor window as an `mcp-request` event. `src/mcp.js` runs the tool and answers through `mcp_reply`. The connector splits batch_retouch and batch_before_after into a few photos per call so none runs past the five-minute wait in `bridge.rs`, and sends MCP progress between them. Its instructions tell any Claude using it how to handle groups of photos and that treatment results stay unedited. The setup steps are in GUIDE.md under Letting Claude edit for you.
 
 ## Checking the text
 
@@ -58,6 +60,12 @@ Shape combining uses polygon-clipping (MIT).
 | File | Contents |
 | --- | --- |
 | `src/main.js` | Layout, library panels, files, export, clipboard, the core commands, keys, autosave |
+| `src/faces.js` | Face finding, the 68 points, straightening to 512 and pasting back |
+| `src/beauty.js` | Smooth skin, Slim face, Slim body, Bright eyes, Whiten teeth and Enhance faces, kept editable on each photo |
+| `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
+| `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
+| `src/beforeafter.js` | Before and after from two photos with the faces lined up |
+| `src/pixels.js` | Fast blurs and mask helpers for the retouch tools |
 | `src/mcp.js` | The Claude connector's tools and the Help menu switch |
 | `src/menus.js` | The menu bar, in Photoshop's order |
 | `src/commands.js` | Command list, menus, shortcuts and command search |

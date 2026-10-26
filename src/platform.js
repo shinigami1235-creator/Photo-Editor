@@ -195,24 +195,33 @@ export async function systemFonts() {
 
 // ---------- Background removal model ----------
 
-export async function modelBytes(onProgress) {
+const MODEL_FILES = { isnet: 'isnet-general-use.onnx', face: 'restoreformer-pp-fp16.onnx' };
+
+/** A model's bytes, downloading it the first time. `name` is isnet (background) or face (Enhance faces). */
+export async function modelBytes(onProgress, name = 'isnet') {
   if (!isDesktop) {
     // Browser testing: the model sits in public/models when present.
-    const res = await fetch('/models/isnet-general-use.onnx');
+    const res = await fetch('/models/' + MODEL_FILES[name]);
     if (!res.ok) throw new Error('model missing');
     return new Uint8Array(await res.arrayBuffer());
   }
   const { core, event } = await api();
-  if (!(await core.invoke('model_ready'))) {
+  if (!(await core.invoke('model_ready', { name }))) {
     const unlisten = await event.listen('model-progress', (e) => {
       const [received, total] = e.payload;
       onProgress?.(received, total);
     });
     try {
-      await core.invoke('model_download');
+      await core.invoke('model_download', { name });
     } finally {
       unlisten();
     }
   }
-  return toBytes(await core.invoke('model_read'));
+  return toBytes(await core.invoke('model_read', { name }));
+}
+
+/** Files and folders inside a folder (desktop only). */
+export async function listDir(path) {
+  const { core } = await api();
+  return core.invoke('list_dir', { path });
 }

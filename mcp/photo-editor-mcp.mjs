@@ -9,7 +9,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 
 const APP_ID = 'com.cygnussolutions.photoeditor';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 function infoFile() {
   if (process.env.PHOTO_EDITOR_MCP_INFO) return process.env.PHOTO_EDITOR_MCP_INFO;
@@ -101,19 +101,56 @@ const TOOLS = [
   { name: 'remove_background', description: 'Find the person or product in a photo with the AI model and hide the background with a layer mask. Takes 10 to 60 seconds.', inputSchema: { type: 'object', properties: { id: str('Photo layer id.'), as_new_layer: bool('Keep the original and make a cut-out copy on top.') }, required: ['id'] } },
   { name: 'text_behind_subject', description: 'Copy the subject of a photo to a layer in front and put a heading between, so the text sits behind the person or product.', inputSchema: { type: 'object', properties: { id: str('Photo layer id.'), text: str('Heading text. Uses the text layer above the photo if there is one.') }, required: ['id'] } },
   { name: 'upscale', description: 'Make a photo 2 or 4 times sharper with the built-in Real-ESRGAN model. It keeps its size on the page.', inputSchema: { type: 'object', properties: { id: str('Photo layer id.'), factor: num('2 or 4.') }, required: ['id'] } },
+  { name: 'retouch', description: 'One-click portrait fixes on a photo layer, the same as the Quick fixes buttons. Fixes stack, so slim_face and slim_body together do both. They stay editable: call again with on false to take one off. The first enhance or glow downloads a 148 MB face model once. Takes 5 to 60 seconds.', inputSchema: { type: 'object', properties: { id: str('Photo layer id.'), fixes: { type: 'array', items: { type: 'string' }, description: 'Any of: glow (Glow up: enhance faces, smooth skin, bright eyes, whiten teeth, plus light and colour), smooth (smooth skin), slim_face, slim_body, enhance (sharpen and restore faces with the face model), eyes (bright eyes), teeth (whiten teeth).' }, on: bool('true turns the fixes on, false takes them off. Default true.'), amounts: { type: 'object', description: 'Exact strengths 0 to 100 by name: enhance, smooth, eyes, teeth, slimFace, slimBody. Leave out for the one-click amounts.' } }, required: ['id'] } },
+  { name: 'detect_faces', description: 'Faces found in a photo layer, biggest first, with position, size, eye distance and tilt. Use it to check a photo has a usable face before retouching or pairing.', inputSchema: { type: 'object', properties: { id: str('Photo layer id.') }, required: ['id'] } },
+  { name: 'before_after', description: 'Make a before and after design from two photos as a new design. Faces are lined up to the same size, angle and place, and each side gets a label. Photos and labels stay separate layers.', inputSchema: { type: 'object', properties: { before: str('Full path of the before photo.'), after: str('Full path of the after photo.'), layout: str('side (1080 × 1350, default), stack (top and bottom, 1080 × 1350), square (1080 × 1080) or wide (1920 × 1080).'), labels: { type: 'array', items: { type: 'string' }, description: 'Two labels. Default Before, After. Empty strings leave labels off.' }, align_faces: bool('Line up the faces. Default true. Without a face in both, the photos are centred.'), name: str('Design name.'), discard_changes: bool('Go ahead even if the open design has unsaved changes.') }, required: ['before', 'after'] } },
+  { name: 'list_files', description: 'Pictures and designs in a folder, sorted by name, with full paths, sizes and dates. Use it to find the photos Gid means before a batch job.', inputSchema: { type: 'object', properties: { folder: str('Full folder path.'), extensions: { type: 'array', items: { type: 'string' }, description: 'File types to list, such as jpg and png. Default every picture type and .zip.' }, include_folders: bool('Also list the folders inside.') }, required: ['folder'] } },
+  { name: 'batch_retouch', description: 'Apply the same one-click fixes to many photos and save each result as a new file. The originals are never changed. Results report faces found per photo, so check for 0.', inputSchema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' }, description: 'Full paths of the photos.' }, fixes: { type: 'array', items: { type: 'string' }, description: 'Same names as retouch.' }, amounts: { type: 'object', description: 'Exact strengths 0 to 100 by name: enhance, smooth, eyes, teeth, slimFace, slimBody. Leave out for the one-click amounts.' }, output_folder: str('Folder to save into.'), suffix: str('Added to each file name. Default -retouched.'), format: str('jpg (default), png or webp.'), quality: num('0.1 to 1. Default 0.92.'), overwrite: bool('Replace files that already exist. Default false skips them.') }, required: ['files', 'fixes', 'output_folder'] } },
+  { name: 'batch_before_after', description: 'Make many before and after pictures in one go. Each pair is saved as a picture plus an editable .zip design named after the pair, such as "Maria lip filler before and after.jpg". Faces are lined up on each pair.', inputSchema: { type: 'object', properties: { pairs: { type: 'array', items: { type: 'object', properties: { before: str('Full path.'), after: str('Full path.'), name: str('File name without extension. Default: the after photo name plus before and after.'), labels: { type: 'array', items: { type: 'string' } } }, required: ['before', 'after'] }, description: 'One entry per pair.' }, output_folder: str('Folder to save into.'), layout: str('side, stack, square or wide. Default side.'), labels: { type: 'array', items: { type: 'string' }, description: 'Labels for every pair. Default Before, After.' }, align_faces: bool('Default true.'), format: str('jpg (default), png or webp.'), quality: num('0.1 to 1.'), save_designs: bool('Also save an editable .zip per pair. Default true.'), overwrite: bool('Replace files that already exist. Default false skips them.'), discard_changes: bool('Go ahead even if the open design has unsaved changes.') }, required: ['pairs', 'output_folder'] } },
   { name: 'list_commands', description: 'Menu commands Photo Editor can run, with their menu path and whether they can run now. Includes layer styles, filters, align, arrange, masks, undo and redo.', inputSchema: { type: 'object', properties: { filter: str('Part of a name or menu, such as style, align or mask.') } } },
   { name: 'run_command', description: 'Run a menu command by id, such as layer.style.shadow, layer.alignC, filter.dehaze, edit.undo. Select the layers first with layer_ids.', inputSchema: { type: 'object', properties: { id: str('Command id from list_commands.'), layer_ids: { type: 'array', items: { type: 'string' }, description: 'Layers to select before running.' } }, required: ['id'] } },
   { name: 'save_design', description: 'Save the design as an editable .zip. Without a path it saves over its own file.', inputSchema: { type: 'object', properties: { path: str('Full path ending in .zip.'), overwrite: bool('Replace a different file that already exists.') } } },
   { name: 'export_image', description: 'Export the current page, or every page into a folder, as PNG, JPG or WebP.', inputSchema: { type: 'object', properties: { path: str('Full file path, or a folder when pages is all.'), format: str('png, jpg or webp. Taken from the file name when left out.'), scale: num('1 or 2.'), quality: num('0.1 to 1 for jpg and webp. Default 0.92.'), transparent: bool('Transparent background for png and webp.'), pages: str('current or all.'), overwrite: bool('Replace files that already exist.') }, required: ['path'] } },
 ];
 
-const INSTRUCTIONS =
-  'Controls the Photo Editor app on Gid\'s computer. Start with get_status and list_layers, use layer ids from list_layers, and call preview after a change to look at the result before saying it is done. Photo Editor must be open with Help > Let Claude control this app ticked. Never overwrite or discard Gid\'s files without being asked.';
+const INSTRUCTIONS = [
+  'Controls the Photo Editor app on Gid\'s computer. Photo Editor must be open with Help > Let Claude control this app ticked.',
+  'Start with get_status and list_layers, and use layer ids from list_layers. Call preview after a change to look at the result before saying it is done.',
+  'Portrait fixes: retouch runs the Quick fixes (glow, smooth, slim_face, slim_body, enhance, eyes, teeth). Start with the one-click amounts and only pass amounts when Gid asks for more or less.',
+  'Groups of photos: find them with list_files, work out the pairs or the set from the file names, and tell Gid the plan in one line if the pairing is not obvious. Then run batch_before_after or batch_retouch once for the whole set. Save into a new folder next to the originals unless Gid names one, and name each file after the person or treatment so it is easy to find.',
+  'After a batch, read the results: report any pair where faces_lined_up is false or faces_found has a 0, and any error or skipped file. Open one or two results with open_file and preview them to check.',
+  'Treatment before and after photos must show the real result. Never slim, smooth or reshape the after photo of a treatment pair to make the change look bigger, and never edit the before photo to look worse. Matching light, crop and alignment is fine. If asked to exaggerate a result, say no and explain that it misrepresents the treatment to patients.',
+  'Never overwrite or discard Gid\'s files without being asked.',
+].join('\n');
 
 // ---------- MCP over stdio ----------
 
 function send(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+// Batch jobs go to Photo Editor a few photos at a time, so no single call runs
+// into its five-minute limit, and the Claude app sees progress between them.
+const CHUNKED = { batch_retouch: { key: 'files', size: 2 }, batch_before_after: { key: 'pairs', size: 3 } };
+
+async function chunked(name, args, progressToken) {
+  const { key, size } = CHUNKED[name];
+  const list = Array.isArray(args[key]) ? args[key] : [];
+  if (list.length <= size) return call(name, args);
+  const results = [];
+  for (let i = 0; i < list.length; i += size) {
+    // Later chunks replace the design the batch itself just made.
+    const part = { ...args, [key]: list.slice(i, i + size), ...(i ? { discard_changes: true } : {}) };
+    try {
+      const r = await call(name, part);
+      results.push(...(JSON.parse(r.text).results || []));
+    } catch (e) {
+      for (const item of part[key]) results.push({ [key === 'files' ? 'file' : 'name']: key === 'files' ? item : item.name || item.after, error: e.message });
+    }
+    const done = Math.min(list.length, i + size);
+    if (progressToken !== undefined) send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: done, total: list.length, message: `${done} of ${list.length} done` } });
+  }
+  return { text: JSON.stringify({ results }) };
 }
 
 async function onMessage(msg) {
@@ -138,7 +175,7 @@ async function onMessage(msg) {
       const name = params?.name;
       if (!TOOLS.some((t) => t.name === name)) return send({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown tool ${name}` } });
       try {
-        const r = await call(name, params.arguments || {});
+        const r = await (CHUNKED[name] ? chunked(name, params.arguments || {}, params._meta?.progressToken) : call(name, params.arguments || {}));
         const content = [];
         if (r.text) content.push({ type: 'text', text: r.text });
         if (r.image) {
