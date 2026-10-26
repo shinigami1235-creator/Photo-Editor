@@ -23,7 +23,8 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { toast } from './ui.js';
 import { quickFix, activeFixes, settingsFor, renderLook } from './quickfix.js';
 import { detectFaces } from './faces.js';
-import { makeBeforeAfter, makeGoalPreview, LAYOUTS, STRENGTHS } from './beforeafter.js';
+import { makeBeforeAfter, makeGoalPreview, LAYOUTS, GOAL_MAX, GOAL_DEFAULT } from './beforeafter.js';
+import { updateBadge } from './badge.js';
 import { listDir } from './platform.js';
 import { loadImage } from './assets.js';
 
@@ -47,6 +48,7 @@ function kindOf(o) {
   if (o.type === 'textbox' || o.type === 'i-text' || o.type === 'text') return 'text';
   if (o.type === 'image') return 'photo';
   if (o.isFrame) return 'frame';
+  if (o.badge) return 'label';
   if (o.type === 'group') return 'group';
   if (o.type === 'line') return 'line';
   return 'shape';
@@ -70,6 +72,7 @@ function describe(o, i) {
     order: i + 1,
     visible: o.visible !== false,
     locked: !!o.locked,
+    ...(o.badge ? { label_text: o.badge.text, label_color: o.badge.color, label_box_color: o.badge.fill } : {}),
     opacity: Math.round((o.opacity ?? 1) * 100),
     blend: BLEND_MODES.find(([v]) => v === (o.globalCompositeOperation || 'source-over'))?.[1] || 'Normal',
     x: round(b.left),
@@ -330,7 +333,12 @@ const TOOLS = {
   },
 
   async set_layer({ id, ...props }) {
-    const o = layer(id);
+    let o = layer(id);
+    if (o.badge) {
+      const { text, color, box_color, ...rest } = props;
+      if (text != null || color || box_color) o = updateBadge(o, { ...(text != null ? { text: String(text) } : {}), ...(color ? { color } : {}), ...(box_color ? { fill: box_color } : {}) });
+      props = rest;
+    }
     await setProps(o, props);
     done();
     say(`changed ${o.name || kindOf(o)}`);
@@ -507,11 +515,12 @@ const TOOLS = {
     };
   },
 
-  async before_after({ before, after, layout = 'side', labels = ['Before', 'After'], align_faces = true, name, discard_changes = false }) {
+  async before_after(args) {
+    const { before, after, layout = 'side', labels = ['Before', 'After'], align_faces = true, name, discard_changes = false } = args;
     if (!before || !after) fail('Give full paths for the before photo and the after photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await pairDesign({ before, after, layout, labels, align_faces, name });
+    const r = await pairDesign({ before, after, layout, labels, align_faces, name, labelColors: labelColors(args) });
     say('before and after made');
     return { text: JSON.stringify({ design: state.doc.name, ...r, layers: layersJson() }) };
   },
@@ -558,7 +567,8 @@ const TOOLS = {
     return { text: JSON.stringify({ results: done }) };
   },
 
-  async batch_before_after({ pairs = [], output_folder, layout = 'side', labels = ['Before', 'After'], align_faces = true, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false }) {
+  async batch_before_after(args) {
+    const { pairs = [], output_folder, layout = 'side', labels = ['Before', 'After'], align_faces = true, format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
     if (!pairs.length) fail('Give pairs as [{ before, after, name }] with full paths.');
     if (!output_folder) fail('Give the folder to save the results in.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
@@ -577,7 +587,7 @@ const TOOLS = {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem });
+        const r = await pairDesign({ before: p.before, after: p.after, layout, labels: p.labels || labels, align_faces, name: stem, labelColors: labelColors(args) });
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -595,25 +605,26 @@ const TOOLS = {
     return { text: JSON.stringify({ results }) };
   },
 
-  async goal_preview({ photo, fixes = ['slim_face', 'slim_body'], amounts, strength = 'medium', layout = 'side', labels = ['Today', 'Goal'], name, discard_changes = false }) {
+  async goal_preview(args) {
+    const { photo, layout = 'side', labels = ['Today', 'Goal'], name, discard_changes = false } = args;
     if (!photo) fail('Give the full path of the patient photo.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
-    if (!STRENGTHS[strength]) fail(`strength is one of ${Object.keys(STRENGTHS).join(', ')}.`);
+    const opts = goalOptions(args);
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const r = await makeGoalPreview({ photo: await loadPath(photo), fixes: fixIds(fixes), amounts, strength, layout, labels, name });
+    const r = await makeGoalPreview({ photo: await loadPath(photo), ...opts, layout, labels, name });
     say('goal preview made');
-    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The goal side carries a Simulated goal tag. Keep it on whenever the picture is shown.', layers: layersJson() }) };
+    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The goal side carries a Simulated goal tag. Keep it on whenever the picture is shown. Fine tune the goal with retouch on goal_layer and amounts, and move the tag or labels with set_layer.', layers: layersJson() }) };
   },
 
-  async batch_goal_preview({ photos = [], fixes = ['slim_face', 'slim_body'], amounts, strength = 'medium', output_folder, layout = 'side', labels = ['Today', 'Goal'], format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false }) {
+  async batch_goal_preview(args) {
+    const { photos = [], output_folder, layout = 'side', labels = ['Today', 'Goal'], format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false } = args;
     if (!photos.length) fail('Give the patient photos as full paths.');
     if (!output_folder) fail('Give the folder to save the results in.');
     if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
-    if (!STRENGTHS[strength]) fail(`strength is one of ${Object.keys(STRENGTHS).join(', ')}.`);
+    const opts = goalOptions(args);
     const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
     if (!MIME[fmt]) fail('format is png, jpg or webp.');
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
-    const ids = fixIds(fixes);
     const results = [];
     for (let i = 0; i < photos.length; i++) {
       const item = typeof photos[i] === 'string' ? { photo: photos[i] } : photos[i];
@@ -626,7 +637,7 @@ const TOOLS = {
           results.push({ name: stem, skipped: 'already exists' });
           continue;
         }
-        const r = await makeGoalPreview({ photo: await loadPath(item.photo), fixes: ids, amounts, strength, layout, labels: item.labels || labels, name: stem });
+        const r = await makeGoalPreview({ photo: await loadPath(item.photo), ...opts, layout, labels: item.labels || labels, name: stem });
         syncCurrentPage();
         const el = await renderPage(currentPage(), 1);
         await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
@@ -667,16 +678,27 @@ const TOOLS = {
 // Short names a person or another assistant might use for the fixes.
 const FIX_ALIAS = { glow_up: 'glow', glowup: 'glow', glow: 'glow', smooth_skin: 'smooth', smoothen: 'smooth', smooth: 'smooth', skin: 'smooth', slim_face: 'slimFace', slimface: 'slimFace', face: 'slimFace', slim_body: 'slimBody', slimbody: 'slimBody', body: 'slimBody', enhance_faces: 'enhance', enhance: 'enhance', restore: 'enhance', bright_eyes: 'eyes', eyes: 'eyes', whiten_teeth: 'teeth', teeth: 'teeth' };
 
+const labelColors = (a) => ({ ...(a.label_box_color ? { fill: a.label_box_color } : {}), ...(a.label_color ? { color: a.label_color } : {}) });
+const tagColors = (a) => ({ ...(a.tag_box_color ? { fill: a.tag_box_color } : {}), ...(a.tag_color ? { color: a.tag_color } : {}) });
+
+function goalOptions(a) {
+  const fixes = fixIds(a.fixes || ['slim_face']);
+  for (const f of fixes) if (!GOAL_MAX[f]) fail(`Goals are slim_face, slim_body, smooth and glow, not ${f}.`);
+  const amount = a.amount ?? GOAL_DEFAULT;
+  if (!(amount >= 0 && amount <= 100)) fail('amount is 0 to 100.');
+  return { fixes, amount, amounts: a.amounts, labelColors: labelColors(a), tagColors: tagColors(a), tag: a.tag_text || 'Simulated goal' };
+}
+
 const fixIds = (fixes = []) => fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
 
 async function loadPath(path) {
   return { name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) };
 }
 
-async function pairDesign({ before, after, layout, labels, align_faces, name }) {
+async function pairDesign({ before, after, layout, labels, align_faces, name, labelColors }) {
   const load = async (path) => ({ name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) });
   const [b, a] = await Promise.all([load(before), load(after)]);
-  const r = await makeBeforeAfter({ before: b, after: a, layout, labels, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
+  const r = await makeBeforeAfter({ before: b, after: a, layout, labels, labelColors, align: align_faces, name: name || `${baseName(after).replace(/\.[^.]+$/, '')} before and after` });
   return { aligned: r.aligned, faces: r.faces, layout, size: r.size };
 }
 

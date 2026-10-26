@@ -3,7 +3,7 @@ import { state, currentPage, emit } from './state.js';
 import { FX_PROPS } from './layerfx.js';
 
 // Properties saved with every object on top of Fabric's own.
-fabric.FabricObject.customProperties = ['uid', 'name', 'locked', 'isFrame', 'frameKind', 'frameShape', 'originalSrc', 'cutout', 'beauty', 'beautyBase', 'glowPrev', 'innerAngle', 'innerFlipX', 'innerFlipY', 'curve', 'flatWidth', 'qrText', 'qrDark', 'qrLight', 'qrEc', 'iconKind', 'iconColor', 'iconWidth', 'shapeKind', 'shapeOpts', 'pin', 'onShape', 'patternFill', ...FX_PROPS];
+fabric.FabricObject.customProperties = ['uid', 'name', 'locked', 'isFrame', 'frameKind', 'frameShape', 'originalSrc', 'cutout', 'beauty', 'beautyBase', 'glowPrev', 'badge', 'innerAngle', 'innerFlipX', 'innerFlipY', 'curve', 'flatWidth', 'qrText', 'qrDark', 'qrLight', 'qrEc', 'iconKind', 'iconColor', 'iconWidth', 'shapeKind', 'shapeOpts', 'pin', 'onShape', 'patternFill', ...FX_PROPS];
 
 Object.assign(fabric.InteractiveFabricObject.ownDefaults, {
   borderColor: '#1f5e99',

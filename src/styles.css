@@ -875,3 +875,6 @@ table.keys th { text-align: left; font-weight: 600; padding: 12px 4px 4px; font-
 .ba-seg { display: grid; grid-template-columns: 1fr 1fr; }
 .ba-labels { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .ba-labels .field { min-width: 0; width: 100%; }
+.ba-colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ba-color { display: inline-flex; align-items: center; gap: 3px; margin-right: 6px; }
+.ba-color .color { width: 28px; height: 24px; padding: 0; border: 1px solid var(--line-2); border-radius: 6px; background: none; cursor: pointer; }

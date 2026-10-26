@@ -26,6 +26,7 @@ import { viewSettings, toggleRulers, toggleSafeZone, clearGuides } from './ruler
 import { openRetouch } from './retouch.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { drawAdjustmentProps } from './adjustlayers.js';
+import { updateBadge } from './badge.js';
 import { quickPanel } from './quickfix.js';
 
 // The right-hand panel: settings for whatever is selected, or the page.
@@ -233,7 +234,7 @@ function fillField(label, targets, { allowNone = false } = {}) {
 }
 
 const typeName = (o) =>
-  o.shapeKind ? 'Shape' : isEmptyFrame(o) ? 'Frame' : isPhoto(o) ? 'Photo' : { textbox: 'Text', rect: 'Rectangle', ellipse: 'Circle', triangle: 'Triangle', line: 'Line', group: 'Group', activeselection: 'Selection' }[o.type] || 'Object';
+  o.badge ? 'Label' : o.shapeKind ? 'Shape' : isEmptyFrame(o) ? 'Frame' : isPhoto(o) ? 'Photo' : { textbox: 'Text', rect: 'Rectangle', ellipse: 'Circle', triangle: 'Triangle', line: 'Line', group: 'Group', activeselection: 'Selection' }[o.type] || 'Object';
 
 function draw() {
   if (!host || !state.doc) return;
@@ -260,6 +261,7 @@ function draw() {
   else if (o.type === 'line') drawLine(o);
   else if (o.qrText != null) drawQr(o);
   else if (o.iconKind) drawIcon(o);
+  else if (o.badge) drawBadge(o);
   else if (o.type === 'group') host.append(section('Group', h('button', { class: 'btn wide', onclick: ungroupSelected }, 'Ungroup')));
   else drawShape(o);
   drawEffects(o);
@@ -509,6 +511,27 @@ function sharpness(o) {
 }
 
 // ---------- QR codes and icons ----------
+
+function drawBadge(o) {
+  const change = (c) => {
+    const g = updateBadge(o, c);
+    record(true);
+    emit('objects');
+    if (g !== o) render();
+  };
+  const words = h('input', { class: 'field', value: o.badge.text });
+  words.addEventListener('keydown', (e) => e.stopPropagation());
+  words.addEventListener('change', () => words.value.trim() && change({ text: words.value.trim() }));
+  host.append(
+    section(
+      o.name === 'Simulated goal tag' ? 'Tag' : 'Label',
+      h('label', { class: 'stack' }, h('span', { class: 'label' }, 'Words'), words),
+      colorField('Box', o.badge.fill, (c, commit) => commit && change({ fill: c })),
+      colorField('Words colour', o.badge.color, (c, commit) => commit && change({ color: c })),
+      h('p', { class: 'muted small' }, 'Drag it anywhere on the page. Delete removes it.'),
+    ),
+  );
+}
 
 function drawQr(o) {
   const link = h('textarea', { class: 'field', rows: 3, value: o.qrText });

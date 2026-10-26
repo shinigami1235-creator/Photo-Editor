@@ -2,11 +2,11 @@
 // or stacked, faces lined up at the same size, angle and place, and labels.
 
 import { canvas, fabric, decorate } from './canvas.js';
-import { state, newDoc, uid } from './state.js';
+import { newDoc, uid } from './state.js';
 import { record } from './history.js';
 import { openDocument } from './pages.js';
 import { loadImage, registerBlob } from './assets.js';
-import { brandFont } from './brand.js';
+import { makeBadge, LABEL_COLORS, TAG_COLORS } from './badge.js';
 import { detectFaces } from './faces.js';
 import { blurAlphaCanvas } from './pixels.js';
 
@@ -58,6 +58,16 @@ function plan(img, face, cell, eyeTarget, level = true) {
     }
     return true;
   };
+  if (face && !level) {
+    // Same photo on both sides: zoom toward the face only while the photo
+    // still fills the cell, then slide it so the face sits as close to the
+    // eye line as the edges allow.
+    const cover = Math.max(cell.w / iw, cell.h / ih);
+    s = Math.max(cover, Math.min(s, cover * 2));
+    const tx = Math.min(0, Math.max(cell.w - iw * s, target[0] - anchor[0] * s));
+    const ty = Math.min(0, Math.max(cell.h - ih * s, target[1] - anchor[1] * s));
+    return { s, ang: 0, anchor, target: [anchor[0] * s + tx, anchor[1] * s + ty], grow: 1 };
+  }
   // Zoom in up to a third to cover the cell. Past that the face goes soft, so
   // the blurred backdrop fills what is left.
   let grow = 1;
@@ -111,34 +121,18 @@ function cropToCell(img, cell, { s: s0, ang, anchor, target }, grow) {
   return { canvas: c, k };
 }
 
-function label(text, cell, align) {
-  const size = Math.round(Math.min(cell.w, cell.h) * 0.065);
-  const t = new fabric.Textbox(text.toUpperCase(), {
-    uid: uid(),
-    name: `${text} label`,
-    fontFamily: brandFont('heading') || 'Arial',
-    fontWeight: 'bold',
-    fontSize: size,
-    charSpacing: 180,
-    fill: '#ffffff',
-    textAlign: 'center',
-    width: size * (text.length * 0.95 + 1.6),
-  });
-  t.initDimensions();
-  const padX = size * 0.7;
-  const padY = size * 0.35;
-  const bg = new fabric.Rect({ left: 0, top: 0, width: t.width + padX * 2, height: t.height + padY * 2, rx: size * 0.3, ry: size * 0.3, fill: '#101c2b', opacity: 0.82 });
-  t.set({ left: padX, top: padY });
-  const g = new fabric.Group([bg, t], { uid: uid(), name: `${text} label` });
+/** A label in the bottom corner of a cell. */
+function label(text, cell, anchor, colors) {
+  const size = Math.round(Math.min(cell.w, cell.h) * 0.06);
   const margin = Math.round(Math.min(cell.w, cell.h) * 0.045);
-  g.set({ left: align === 'right' ? cell.x + cell.w - g.width - margin : cell.x + margin, top: cell.y + cell.h - g.height - margin });
+  const g = makeBadge({ text, ...LABEL_COLORS, ...colors, opacity: 0.85, size, name: `${text} label`, at: { x: anchor === 'right' ? cell.x + cell.w - margin : cell.x + margin, y: 0, anchor } });
+  g.set({ top: cell.y + cell.h - g.height - margin });
   g.setCoords();
-  decorate(g);
   return g;
 }
 
 /** Lays two loaded pictures into a new design. */
-async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, name, gap, background }) {
+async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, labelColors, name, gap, background }) {
   const L = LAYOUTS[layout] || LAYOUTS.side;
   const bothFaces = align && bFaces.length > 0 && aFaces.length > 0;
   const doc = newDoc({ name, width: L.width, height: L.height });
@@ -151,20 +145,20 @@ async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names,
   const shared = Math.max(plans[0].grow, plans[1].grow);
   const out = [];
   for (const [i, img, text] of [
-    [0, bImg, labels[0] || 'Before'],
-    [1, aImg, labels[1] || 'After'],
+    [0, bImg, labels?.[0] || names.photoNames?.[0] || 'Before'],
+    [1, aImg, labels?.[1] || names.photoNames?.[1] || 'After'],
   ]) {
     const cell = cs[i];
     const crop = cropToCell(img, cell, plans[i], bothFaces ? shared : plans[i].grow);
     const blob = await new Promise((r) => crop.canvas.toBlob(r, 'image/jpeg', 0.93));
     const el = await loadImage(registerBlob(blob));
-    const photo = new fabric.FabricImage(el, { uid: uid(), name: `${text} photo`, frameShape: { kind: 'rect', r: 0 }, left: cell.x, top: cell.y, scaleX: 1 / crop.k, scaleY: 1 / crop.k, sourceName: names[i] });
+    const photo = new fabric.FabricImage(el, { uid: uid(), name: `${text} photo`, frameShape: { kind: 'rect', r: 0 }, left: cell.x, top: cell.y, scaleX: 1 / crop.k, scaleY: 1 / crop.k, sourceName: names.files[i] });
     decorate(photo);
     canvas.add(photo);
     out.push(photo);
   }
-  if (labels[0]) canvas.add(label(labels[0], cs[0], 'left'));
-  if (labels[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right'));
+  if (labels?.[0]) canvas.add(label(labels[0], cs[0], 'left', labelColors));
+  if (labels?.[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right', labelColors));
   return { cells: cs, aligned: bothFaces, photos: out, size: [L.width, L.height] };
 }
 
@@ -175,85 +169,146 @@ const finish = () => {
 };
 
 /**
- * Makes the design. before and after are { url, name }. Returns
- * { aligned, faces: [before, after] } where faces counts the faces found.
+ * Makes the design. before and after are { url, name }. labels can be empty
+ * to leave them off. Returns { aligned, faces: [before, after] }.
  */
-export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], labelColors, align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
   const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
   const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
-  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: [before.name, after.name], layout, labels, name, gap, background });
+  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: { files: [before.name, after.name] }, layout, labels, labelColors, name, gap, background });
   finish();
   return { aligned: r.aligned, faces: [bFaces.length, aFaces.length], photos: r.photos, layout, size: r.size };
 }
 
-// How far a goal preview pushes the one-click amounts.
-export const STRENGTHS = { light: 0.7, medium: 1.2, strong: 1.7 };
+/**
+ * Goal amounts at the top of the Amount slider. Kept to what a program can
+ * reach, so even the full amount reads as the same person.
+ */
+export const GOAL_MAX = {
+  slimFace: { slimFace: 32 },
+  slimBody: { slimBody: 40 },
+  smooth: { smooth: 35 },
+  glow: { enhance: 25, smooth: 25, eyes: 30, teeth: 25 },
+};
+export const GOAL_DEFAULT = 40;
 
-/** The gold tag on a goal preview that marks it as a simulation. */
-function simTag(cell, text = 'Simulated goal') {
-  const size = Math.round(Math.min(cell.w, cell.h) * 0.042);
-  const t = new fabric.Textbox(text.toUpperCase(), { fontFamily: brandFont('heading') || 'Arial', fontWeight: 'bold', fontSize: size, charSpacing: 160, fill: '#101c2b', textAlign: 'center', width: size * (text.length * 0.95 + 1.6) });
-  t.initDimensions();
-  const padX = size * 0.8;
-  const padY = size * 0.4;
-  const bg = new fabric.Rect({ left: 0, top: 0, width: t.width + padX * 2, height: t.height + padY * 2, rx: size * 0.4, ry: size * 0.4, fill: '#e0b45a' });
-  t.set({ left: padX, top: padY });
-  const g = new fabric.Group([bg, t], { uid: uid(), name: 'Simulated goal tag' });
-  const margin = Math.round(Math.min(cell.w, cell.h) * 0.045);
-  g.set({ left: cell.x + cell.w - g.width - margin, top: cell.y + margin });
-  g.setCoords();
-  decorate(g);
-  return g;
+/** Fix amounts for a goal at `amount` (0 to 100 on the slider). */
+export function goalAmounts(fixes, amount = GOAL_DEFAULT) {
+  const k = Math.max(0, Math.min(100, +amount)) / 100;
+  const s = { enhance: 0, smooth: 0, eyes: 0, teeth: 0, slimFace: 0, slimBody: 0 };
+  for (const id of fixes) {
+    if (!GOAL_MAX[id]) throw new Error(`Goals are ${Object.keys(GOAL_MAX).join(', ')}.`);
+    for (const [key, v] of Object.entries(GOAL_MAX[id])) s[key] = Math.max(s[key], Math.round(v * k));
+  }
+  return s;
+}
+
+/** The tag on a goal preview that marks it as a simulation, at the top of the goal side. */
+function simTag(cell, text, colors) {
+  const size = Math.round(Math.min(cell.w, cell.h) * 0.04);
+  const margin = Math.round(Math.min(cell.w, cell.h) * 0.025);
+  return makeBadge({ text, ...TAG_COLORS, ...colors, size, name: 'Simulated goal tag', at: { x: cell.x + cell.w - margin, y: cell.y + margin, anchor: 'right' } });
 }
 
 /**
- * A goal preview: the photo as it is today beside a simulated goal with the
- * chosen fixes applied, tagged as a simulation. photo is { url, name };
- * fixes are Quick fixes ids. Returns { faces, fixes, amounts }.
+ * A goal preview: the photo as it is today beside a simulated goal, tagged as
+ * a simulation. photo is { url, name }; fixes are slimFace, slimBody, smooth
+ * and glow; amount is 0 to 100 on the goal scale, or `amounts` sets exact fix
+ * amounts. The goal photo keeps its fixes editable with Fine tune.
  */
-export async function makeGoalPreview({ photo, fixes = ['slimFace', 'slimBody'], amounts = null, strength = 'medium', layout = 'side', labels = ['Today', 'Goal'], name, tag = 'Simulated goal', gap = 8, background = '#ffffff', say }) {
-  const { renderLook, settingsFor } = await import('./quickfix.js');
+export async function makeGoalPreview({ photo, fixes = ['slimFace'], amount = GOAL_DEFAULT, amounts = null, layout = 'side', labels = ['Today', 'Goal'], labelColors, tag = 'Simulated goal', tagColors, name, gap = 8, background = '#ffffff' }) {
+  const { quickFix } = await import('./quickfix.js');
+  const settings = { ...goalAmounts(fixes, amount), ...(amounts || {}) };
   const img = await loadImage(photo.url);
-  const settings = settingsFor(fixes, amounts, STRENGTHS[strength] || 1);
-  const goal = await renderLook(img, fixes, settings, { key: photo.url, say });
-  // The eyes stay where they were, so the faces from the original line both up.
   // A body goal shows the whole photo, since zooming to the face hides the body.
   const faces = await detectFaces(img, { key: photo.url });
-  const r = await compose({ bImg: img, aImg: goal.canvas, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: [photo.name, photo.name], layout, labels, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
-  canvas.add(simTag(r.cells[1], tag || 'Simulated goal'));
+  const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Today', 'Goal'] }, layout, labels, labelColors, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
+  const goal = r.photos[1];
+  await quickFix(goal, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
+  canvas.add(simTag(r.cells[1], tag || 'Simulated goal', tagColors));
   finish();
-  return { faces: faces.length, fixes, amounts: settings, layout, size: r.size };
+  return { faces: faces.length, fixes, amounts: settings, goal_layer: goal.uid, layout, size: r.size };
+}
+
+// ---------- Windows ----------
+
+const SAVED = 'settings/beforeafter.json';
+
+/** Colours and label choices from last time, so a clinic's theme sticks. */
+async function remembered() {
+  const { dataReadJson } = await import('./platform.js');
+  const d = await dataReadJson(SAVED, {});
+  return { labelColors: { ...LABEL_COLORS, ...d.labelColors }, tagColors: { ...TAG_COLORS, ...d.tagColors }, showLabels: d.showLabels !== false };
+}
+
+async function remember(S) {
+  const { dataWriteJson } = await import('./platform.js');
+  await dataWriteJson(SAVED, { labelColors: S.labelColors, tagColors: S.tagColors, showLabels: S.showLabels });
+}
+
+async function parts() {
+  const ui = await import('./ui.js');
+  const { brandColors } = await import('./brand.js');
+  const { h } = ui;
+  const colorPick = (obj, key, title) => {
+    const input = h('input', { type: 'color', class: 'color', title, value: obj[key], oninput: (e) => (obj[key] = e.target.value) });
+    const swatches = brandColors()
+      .slice(0, 5)
+      .map((c) => h('button', { class: 'swatch small', title: c, style: { background: c }, onclick: () => ((obj[key] = c), (input.value = c)) }));
+    return h('span', { class: 'ba-color' }, input, swatches);
+  };
+  const colorRow = (text, obj) => h('div', { class: 'field-row' }, h('span', { class: 'label' }, text), h('div', { class: 'ba-colors' }, h('span', { class: 'muted small' }, 'Box'), colorPick(obj, 'fill', `${text} box colour`), h('span', { class: 'muted small' }, 'Words'), colorPick(obj, 'color', `${text} word colour`)));
+  const labelsRow = (S) => {
+    const fields = h('div', { class: 'ba-labels' }, [0, 1].map((i) => h('input', { class: 'field', value: S.labels[i], disabled: !S.showLabels, oninput: (e) => (S.labels[i] = e.target.value) })));
+    return h(
+      'div',
+      { class: 'stack' },
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.showLabels, onchange: (e) => ((S.showLabels = e.target.checked), [...fields.children].forEach((f) => (f.disabled = !S.showLabels))) }), 'Show labels'),
+      fields,
+    );
+  };
+  const segOf = (S, key, opts, cols) => {
+    const el = h(
+      'div',
+      { class: 'seg ba-seg', style: cols ? { gridTemplateColumns: `repeat(${cols}, 1fr)` } : null },
+      opts.map(([id, text, title]) => h('button', { class: id === S[key] ? 'on' : '', title: title || '', onclick: (e) => ((S[key] = id), [...el.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget))) }, text)),
+    );
+    return el;
+  };
+  const layoutSeg = (S) => segOf(S, 'layout', Object.entries(LAYOUTS).map(([id, l]) => [id, l.short, `${l.label}, ${l.width} × ${l.height}`]));
+  const pickBox = (S, key, title, pickPhoto) => {
+    const nameEl = h('span', { class: 'ba-file' }, 'None picked');
+    const b = h(
+      'button',
+      {
+        class: 'ba-pick',
+        onclick: async () => {
+          const f = await pickPhoto();
+          if (!f) return;
+          S[key] = f;
+          nameEl.textContent = f.name;
+          b.classList.add('picked');
+        },
+      },
+      h('strong', {}, title),
+      nameEl,
+    );
+    return b;
+  };
+  return { ...ui, colorRow, labelsRow, layoutSeg, pickBox };
 }
 
 /** The Before and after window: pick two photos, a layout and the labels. */
 export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
-  const { h, modal, toast } = await import('./ui.js');
-  const S = { before: null, after: null, layout: 'side', labels: ['Before', 'After'], align: true };
-  const pickBox = (which, title) => {
-    const nameEl = h('span', { class: 'ba-file' }, 'None picked');
-    return h('button', { class: 'ba-pick', onclick: () => pick(which, nameEl) }, h('strong', {}, title), nameEl);
-  };
-  const pick = async (which, el) => {
-    const f = await pickPhoto();
-    if (!f) return;
-    S[which] = f;
-    el.textContent = f.name;
-    el.parentElement.classList.add('picked');
-  };
-  const seg = h(
-    'div',
-    { class: 'seg ba-seg' },
-    Object.entries(LAYOUTS).map(([id, l]) =>
-      h('button', { class: id === S.layout ? 'on' : '', title: `${l.label}, ${l.width} × ${l.height}`, onclick: (e) => ((S.layout = id), [...seg.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget))) }, l.short),
-    ),
-  );
-  const field = (i) => h('input', { class: 'field', value: S.labels[i], oninput: (e) => (S.labels[i] = e.target.value) });
+  const { h, modal, toast, colorRow, labelsRow, layoutSeg, pickBox } = await parts();
+  const S = { before: null, after: null, layout: 'side', labels: ['Before', 'After'], align: true, ...(await remembered()) };
   const body = h(
     'div',
     { class: 'stack gap ba-dialog' },
-    h('div', { class: 'ba-picks' }, pickBox('before', 'Before photo'), pickBox('after', 'After photo')),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), seg),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Labels'), h('div', { class: 'ba-labels' }, field(0), field(1))),
+    h('div', { class: 'ba-picks' }, pickBox(S, 'before', 'Before photo', pickPhoto), pickBox(S, 'after', 'After photo', pickPhoto)),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)),
+    labelsRow(S),
+    colorRow('Labels', S.labelColors),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => (S.align = e.target.checked) }), 'Line up the faces'),
     h('p', { class: 'muted small' }, 'Both faces are matched for size, angle and place, so the only difference left is the result.'),
   );
@@ -264,64 +319,39 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   if (!ok) return;
   if (!S.before || !S.after) return toast('Pick a before photo and an after photo.', { error: true });
   if (!(await confirmDiscard())) return;
+  await remember(S);
   const note = toast('Lining up the faces', { sticky: true });
   try {
-    const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.labels, align: S.align });
+    const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, align: S.align });
     toast(r.aligned || !S.align ? 'Before and after made.' : `No face found in the ${r.faces[0] ? 'after' : 'before'} photo, so both are centred instead.`);
   } finally {
     note.done();
   }
 }
 
-/** The Goal preview window: one photo, which fixes, how strong. */
+/** The Goal preview window: one photo, which goals, how far. */
 export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
-  const { h, modal, toast } = await import('./ui.js');
+  const { h, modal, toast, rangeField, colorRow, labelsRow, layoutSeg, pickBox } = await parts();
   const { PRESETS } = await import('./beauty.js');
-  const S = { photo: null, fixes: new Set(['slimFace', 'slimBody']), strength: 'medium', layout: 'side', labels: ['Today', 'Goal'] };
-  const nameEl = h('span', { class: 'ba-file' }, 'None picked');
-  const pickBtn = h(
-    'button',
-    {
-      class: 'ba-pick',
-      onclick: async () => {
-        const f = await pickPhoto();
-        if (!f) return;
-        S.photo = f;
-        nameEl.textContent = f.name;
-        pickBtn.classList.add('picked');
-      },
-    },
-    h('strong', {}, 'Patient photo'),
-    nameEl,
-  );
+  const S = { photo: null, fixes: new Set(['slimFace']), amount: GOAL_DEFAULT, layout: 'side', labels: ['Today', 'Goal'], ...(await remembered()) };
   const chips = h(
     'div',
     { class: 'fix-grid' },
-    ['slimFace', 'slimBody', 'smooth', 'glow'].map((id) =>
+    Object.keys(GOAL_MAX).map((id) =>
       h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id))) }, PRESETS[id].label),
     ),
   );
-  const segOf = (opts, key) => {
-    const el = h(
-      'div',
-      { class: 'seg ba-seg' },
-      opts.map(([id, text]) => h('button', { class: id === S[key] ? 'on' : '', onclick: (e) => ((S[key] = id), [...el.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget))) }, text)),
-    );
-    return el;
-  };
-  const strength = segOf([['light', 'Light'], ['medium', 'Medium'], ['strong', 'Strong']], 'strength');
-  strength.style.gridTemplateColumns = '1fr 1fr 1fr';
-  const layout = segOf(Object.entries(LAYOUTS).map(([id, l]) => [id, l.short]), 'layout');
-  const field = (i) => h('input', { class: 'field', value: S.labels[i], oninput: (e) => (S.labels[i] = e.target.value) });
   const body = h(
     'div',
     { class: 'stack gap ba-dialog' },
-    pickBtn,
+    pickBox(S, 'photo', 'Patient photo', pickPhoto),
     h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Goal'), chips),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Strength'), strength),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layout),
-    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Labels'), h('div', { class: 'ba-labels' }, field(0), field(1))),
-    h('p', { class: 'muted small' }, 'The goal side carries a Simulated goal tag, since it shows what the program aims for and not a result yet.'),
+    rangeField('Amount', S.amount, (v) => (S.amount = v), { min: 0, max: 100 }),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)),
+    labelsRow(S),
+    colorRow('Labels', S.labelColors),
+    colorRow('Tag', S.tagColors),
+    h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the goal photo afterwards to fine tune each fix. The Simulated goal tag and the labels are layers you can drag anywhere.'),
   );
   const ok = await modal('Goal preview', body, [
     { label: 'Cancel', value: false },
@@ -331,10 +361,11 @@ export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
   if (!S.photo) return toast('Pick the patient photo.', { error: true });
   if (!S.fixes.size) return toast('Pick at least one goal.', { error: true });
   if (!(await confirmDiscard())) return;
+  await remember(S);
   const note = toast('Making the goal', { sticky: true });
   try {
-    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], strength: S.strength, layout: S.layout, labels: S.labels, say: (t, f) => (note.text(t), f != null && note.progress(f)) });
-    toast(r.faces ? 'Goal preview made.' : 'No face found, so only Slim body and colour ran.');
+    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], amount: S.amount, layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, tagColors: S.tagColors });
+    toast(r.faces || !S.fixes.has('slimFace') ? 'Goal preview made.' : 'No face found, so only the body and colour goals ran.');
   } catch (e) {
     toast(e.message || String(e), { error: true });
   } finally {

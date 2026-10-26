@@ -295,8 +295,9 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 
 ## Templates and before-and-after
 
-- **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide) and the two labels, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
-- **Goal preview (File menu):** for right after a session, when the result can't be seen yet. Pick the patient photo, the goals (Slim face, Slim body, Smooth skin, Glow up) and a strength, then Create. You get the photo today beside a simulated goal, with a gold Simulated goal tag on the goal side. Face goals zoom in on the face and body goals show the whole photo. The tag is a layer like any other, and it's the thing that keeps the picture honest when it gets forwarded or posted, so leave it on.
+- **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide), the two labels and their colours, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
+- **Goal preview (File menu):** for right after a session, when the result can't be seen yet. Pick the patient photo, the goals (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Create. You get the photo today beside a simulated goal with a Simulated goal tag at the top of the goal side. Amount starts at 40, and even 100 stays within what a program can reach, so the patient still looks like themselves. Face goals zoom in on the face and body goals show the whole photo. Select the goal photo afterwards and Fine tune under Quick fixes adjusts each fix on its own.
+- **Labels and the tag:** each is a layer you can drag anywhere, so move it off anything you want the patient to see. Select one to change its words, box colour and word colour in Properties, or press Delete to remove it. Untick Show labels in either window to leave Before/After or Today/Goal off from the start. The colours you pick are remembered for next time, so set them once to the clinic's theme. The Simulated goal tag is what keeps a goal preview honest when it gets forwarded, so move or recolour it rather than deleting it.
 - **Before and after templates:** Side by side, Top and bottom, and Split. Each has two frames of the same size with BEFORE and AFTER labels. It fills an empty page, or goes on a new page after the current one. Drop a photo on each frame.
 - **Save page as template (File menu):** keeps the current page. Click a template to add it as a new page.
 
@@ -379,7 +380,7 @@ It also works through whole folders. Things you can ask:
 - "Glow up every photo in Desktop\Shoot 12 and save them in a new folder."
 - "In Clients\Botox October, pair each before with its after and make side by side before and afters, labelled Before and 2 weeks. Name each file after the client."
 - "Slim face and smooth skin on the selected photo, then export it as a JPG next to the original."
-- "Make strong slim body goal previews for everyone in Consults\Week 1 and save them in a Goals folder."
+- "Make slim body goal previews for everyone in Consults\Week 1 with the tag in our navy, and save them in a Goals folder."
 
 For groups it lists the folder, works out the pairs from the file names, runs them in one go and saves a picture plus an editable .zip for each. It tells you which pairs had no face to line up and which files it skipped. Any Claude app with the connector below added can do this.
 

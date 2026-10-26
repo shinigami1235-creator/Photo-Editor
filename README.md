@@ -65,6 +65,7 @@ Shape combining uses polygon-clipping (MIT).
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
 | `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Goal preview |
+| `src/badge.js` | Label and tag layers (BEFORE, SIMULATED GOAL) whose words and colours stay editable |
 | `src/pixels.js` | Fast blurs and mask helpers for the retouch tools |
 | `src/mcp.js` | The Claude connector's tools and the Help menu switch |
 | `src/menus.js` | The menu bar, in Photoshop's order |
