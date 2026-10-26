@@ -178,7 +178,7 @@ Fine tune opens a slider for each fix, 0 to 100, for when the one-click amount i
 
 Faces are found automatically, every face in the photo. Fixes that need a face skip photos without one and the message says so. Times on a laptop without a graphics card: Smooth skin, Slim face, Bright eyes and Whiten teeth take 5 to 15 seconds, Slim body and Enhance faces up to a minute. A graphics card cuts that down a lot.
 
-Keep these off the treatment result in clinic before-and-after photos. Light, crop and lining up the faces are fine. Slimming or smoothing the after photo changes the result patients are shown.
+Keep these off the treatment result in clinic before-and-after photos. Light, crop and lining up the faces are fine. Slimming or smoothing the after photo changes the result patients are shown. To show what a program can achieve, use Goal preview in the File menu, which marks the edited side as a simulation.
 
 ## Upscale
 
@@ -296,6 +296,7 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 ## Templates and before-and-after
 
 - **Before and after from two photos (File menu):** pick the before photo and the after photo, a layout (Side by side, Stacked, Square or Wide) and the two labels, then Create. The faces are lined up to the same size, angle and place, so the only thing that changes between the two is the result. If a photo has no face it finds, both are centred instead and the message says which one. Photos and labels stay separate layers, so you can move or retype them after.
+- **Goal preview (File menu):** for right after a session, when the result can't be seen yet. Pick the patient photo, the goals (Slim face, Slim body, Smooth skin, Glow up) and a strength, then Create. You get the photo today beside a simulated goal, with a gold Simulated goal tag on the goal side. Face goals zoom in on the face and body goals show the whole photo. The tag is a layer like any other, and it's the thing that keeps the picture honest when it gets forwarded or posted, so leave it on.
 - **Before and after templates:** Side by side, Top and bottom, and Split. Each has two frames of the same size with BEFORE and AFTER labels. It fills an empty page, or goes on a new page after the current one. Drop a photo on each frame.
 - **Save page as template (File menu):** keeps the current page. Click a template to add it as a new page.
 
@@ -378,6 +379,7 @@ It also works through whole folders. Things you can ask:
 - "Glow up every photo in Desktop\Shoot 12 and save them in a new folder."
 - "In Clients\Botox October, pair each before with its after and make side by side before and afters, labelled Before and 2 weeks. Name each file after the client."
 - "Slim face and smooth skin on the selected photo, then export it as a JPG next to the original."
+- "Make strong slim body goal previews for everyone in Consults\Week 1 and save them in a Goals folder."
 
 For groups it lists the folder, works out the pairs from the file names, runs them in one go and saves a picture plus an editable .zip for each. It tells you which pairs had no face to line up and which files it skipped. Any Claude app with the connector below added can do this.
 
@@ -414,7 +416,7 @@ On a Mac the path is the folder where you keep Photo Editing, such as `/Users/yo
 - It opens files, saves designs and exports pictures only at the paths it names in the chat.
 - It will not replace a file that already exists or close a design with unsaved changes unless you tell it to.
 - It saves batch results as new files and never changes the originals.
-- It won't slim, smooth or reshape the after photo of a treatment to make the result look bigger, and won't make a before photo look worse.
+- It won't slim, smooth or reshape the after photo of a treatment to make the result look bigger, and won't make a before photo look worse. For a simulated goal it uses Goal preview, which keeps the Simulated goal tag on.
 - File pickers, batch export, Make other sizes, adding fonts, retouch painting and the cut-out editor stay with you. Claude asks you to do those.
 - When Photo Editor is closed or the switch is off, Claude says so and stops.
 

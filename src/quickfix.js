@@ -8,8 +8,8 @@ import { isPhoto } from './frames.js';
 import { h, section, rangeField, toast } from './ui.js';
 import { defineCommands } from './commands.js';
 import { photoTarget } from './adjustpanel.js';
-import { autoSettings } from './adjust.js';
-import { FIXES, PRESETS, NONE, applyFixes } from './beauty.js';
+import { autoSettings, adjustPixels, NEUTRAL as ADJ_NEUTRAL } from './adjust.js';
+import { FIXES, PRESETS, NONE, applyFixes, renderFixes } from './beauty.js';
 
 let busy = false;
 export const isBusy = () => busy;
@@ -37,6 +37,32 @@ export function glowLook(source, before = {}) {
     warmth: add('warmth', 5),
     clarity: add('clarity', -5),
   };
+}
+
+/** Amounts for a set of fix ids, scaled by `k`, with exact `amounts` on top. */
+export function settingsFor(ids = [], amounts = null, k = 1) {
+  const s = { ...NONE };
+  for (const id of ids) {
+    if (!PRESETS[id]) throw new Error(`Unknown fix ${id}. Fixes: ${Object.keys(PRESETS).join(', ')}.`);
+    for (const [key, v] of Object.entries(PRESETS[id].set)) s[key] = Math.max(s[key], Math.min(100, Math.round(v * k)));
+  }
+  for (const [key, v] of Object.entries(amounts || {})) {
+    if (!(key in NONE)) throw new Error(`Unknown amount ${key}. Amounts: ${Object.keys(NONE).join(', ')}.`);
+    s[key] = Math.max(0, Math.min(100, +v || 0));
+  }
+  return s;
+}
+
+/** Runs fixes on a picture outside any design, Glow up's colour included. Returns { canvas, faces }. */
+export async function renderLook(img, ids, settings, { key, say } = {}) {
+  const r = await renderFixes(img, settings, { key, say });
+  if (ids.includes('glow')) {
+    const x = r.canvas.getContext('2d', { willReadFrequently: true });
+    const d = x.getImageData(0, 0, r.canvas.width, r.canvas.height);
+    adjustPixels(d.data, d.width, d.height, { ...ADJ_NEUTRAL, ...glowLook(r.canvas) });
+    x.putImageData(d, 0, 0);
+  }
+  return r;
 }
 
 /** Which one-click fixes are on for a photo. */

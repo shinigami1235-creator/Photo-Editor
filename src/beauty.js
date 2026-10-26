@@ -445,72 +445,84 @@ async function personMask(source, key, say) {
   return mask;
 }
 
+/**
+ * Narrows the body toward its middle. The body's centre and width are
+ * measured per row and then smoothed up and down the photo, so the warp
+ * changes gradually and arms or legs leaving the outline never tear.
+ */
 function slimBody(out, mask, faces, t) {
   const W = out.width;
   const H = out.height;
   const sy = mask.h / H;
   const sx = W / mask.w;
-  const rowRuns = (my) => {
-    const runs = [];
+  const extent = (my) => {
+    let L = -1;
+    let R = -1;
     let start = -1;
     for (let x = 0; x <= mask.w; x++) {
       const on = x < mask.w && mask.a[my * mask.w + x] > 0.5;
       if (on && start < 0) start = x;
       if (!on && start >= 0) {
-        if (x - start >= mask.w * 0.035) runs.push([start * sx, x * sx]);
+        if (x - start >= mask.w * 0.035) {
+          if (L < 0) L = start;
+          R = x;
+        }
         start = -1;
       }
     }
-    return runs;
+    return L < 0 ? null : [L * sx, R * sx];
   };
-  // The body starts under the lowest chin, or a fifth of the way down the person.
+  const cx = new Float32Array(H);
+  const hw = new Float32Array(H);
+  const on = new Float32Array(H);
   let top = Infinity;
   let bottom = -1;
-  for (let my = 0; my < mask.h; my++)
-    if (rowRuns(my).length) {
-      top = Math.min(top, my / sy);
-      bottom = my / sy;
-    }
+  for (let y = 0; y < H; y++) {
+    const e = extent(Math.min(mask.h - 1, Math.floor(y * sy)));
+    if (!e) continue;
+    on[y] = 1;
+    cx[y] = (e[0] + e[1]) / 2;
+    hw[y] = (e[1] - e[0]) / 2;
+    top = Math.min(top, y);
+    bottom = y;
+  }
   if (!isFinite(top)) return false;
+  // The body starts under the lowest chin, or a fifth of the way down the person.
   const chin = faces.length ? Math.max(...faces.map((f) => f.parts.chin[1] + f.parts.height * 0.18)) : top + (bottom - top) * 0.2;
   const start = Math.max(top, chin);
   const span = Math.max(1, bottom - start);
+  const r = Math.max(2, Math.round(H * 0.025));
+  const smooth = (v) => boxBlur(boxBlur(v, 1, H, r), 1, H, r);
+  const onS = smooth(on);
+  const cxS = smooth(cx.map((v, i) => v * on[i]));
+  const hwS = smooth(hw.map((v, i) => v * on[i]));
   const ctx = out.getContext('2d', { willReadFrequently: true });
-  const y0 = Math.floor(start);
+  const y0 = Math.max(0, Math.floor(start));
   const img = ctx.getImageData(0, y0, W, H - y0);
   const row = new Uint8ClampedArray(W * 4);
+  const REACH = 2.2;
   for (let y = y0; y < H; y++) {
+    if (onS[y] < 0.01) continue;
+    const c = cxS[y] / onS[y];
+    const w = hwS[y] / onS[y];
     const p = (y - start) / span;
     const profile = p < 0.1 ? smoothstep(0, 0.1, p) : p < 0.6 ? 1 : 1 - 0.6 * smoothstep(0.6, 1, p);
-    const s = t * 0.1 * profile;
-    if (s < 0.002) continue;
-    const runs = rowRuns(Math.min(mask.h - 1, Math.floor(y * sy)));
-    if (!runs.length) continue;
+    const s = t * 0.1 * profile * Math.min(1, onS[y]);
+    if (s < 0.002 || w < 2) continue;
     const base = (y - y0) * W * 4;
     row.set(img.data.subarray(base, base + W * 4));
-    runs.forEach(([L, R], i) => {
-      const c = (L + R) / 2;
-      const hw = (R - L) / 2;
-      const gapL = i ? L - runs[i - 1][1] : L;
-      const gapR = i < runs.length - 1 ? runs[i + 1][0] - R : W - R;
-      const m = Math.max(2, Math.min(hw * 0.6, gapL / 2, gapR / 2));
-      const inner = hw * (1 - s);
-      const xa = Math.max(0, Math.floor(c - hw - m));
-      const xb = Math.min(W - 1, Math.ceil(c + hw + m));
-      for (let x = xa; x <= xb; x++) {
-        const v = x - c;
-        const av = Math.abs(v);
-        let u;
-        if (av <= inner) u = av / (1 - s);
-        else if (av <= hw + m) u = hw + ((av - inner) * m) / (m + s * hw);
-        else continue;
-        const sxp = Math.min(W - 1.001, Math.max(0, c + Math.sign(v) * u));
-        const x0 = sxp | 0;
-        const fx = sxp - x0;
-        const o = base + x * 4;
-        for (let ch = 0; ch < 4; ch++) img.data[o + ch] = row[x0 * 4 + ch] + (row[(x0 + 1) * 4 + ch] - row[x0 * 4 + ch]) * fx;
-      }
-    });
+    const xa = Math.max(0, Math.floor(c - w * REACH));
+    const xb = Math.min(W - 1, Math.ceil(c + w * REACH));
+    for (let x = xa; x <= xb; x++) {
+      const v = x - c;
+      const q = Math.abs(v) / w;
+      const f = q <= 1 ? q : 1 - smoothstep(1, REACH, q);
+      const src = Math.min(W - 1.001, Math.max(0, x + Math.sign(v) * s * w * f));
+      const x0 = src | 0;
+      const fx = src - x0;
+      const o = base + x * 4;
+      for (let ch = 0; ch < 4; ch++) img.data[o + ch] = row[x0 * 4 + ch] + (row[(x0 + 1) * 4 + ch] - row[x0 * 4 + ch]) * fx;
+    }
   }
   ctx.putImageData(img, 0, y0);
   return true;

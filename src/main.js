@@ -86,7 +86,7 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { MENUS } from './menus.js';
 import { init as initClaude } from './mcp.js';
 import { initQuickFixes } from './quickfix.js';
-import { beforeAfterDialog } from './beforeafter.js';
+import { beforeAfterDialog, goalPreviewDialog } from './beforeafter.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -1134,6 +1134,18 @@ function defineCoreCommands() {
           },
         }),
       also: 'collage compare result',
+    },
+    'file.goalPreview': {
+      label: 'Goal preview',
+      run: () =>
+        goalPreviewDialog({
+          confirmDiscard,
+          pickPhoto: async () => {
+            const [f] = (await pickFiles({ extensions: ['png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], label: 'Images and RAW files' })) || [];
+            return f ? { name: f.name, url: await pictureUrl(f.name, f.bytes) } : null;
+          },
+        }),
+      also: 'simulation projected result consult slim program',
     },
     // Layer
     'layer.text': { label: 'New text', run: () => addText('body') , enabled: doc },

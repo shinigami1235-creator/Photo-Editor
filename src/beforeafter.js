@@ -31,7 +31,7 @@ function cells(layout, W, H, gap) {
  * the same distance apart and level; without one, the photo fills the cell
  * centred. `grow` is how much it has to zoom in to cover the whole cell.
  */
-function plan(img, face, cell, eyeTarget) {
+function plan(img, face, cell, eyeTarget, level = true) {
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
   let s;
@@ -41,7 +41,7 @@ function plan(img, face, cell, eyeTarget) {
   if (face) {
     const p = face.parts;
     s = eyeTarget.dist / p.eyeDist;
-    ang = -p.angle;
+    ang = level ? -p.angle : 0;
     anchor = p.eyeMid;
     target = [cell.w * 0.5, cell.h * eyeTarget.y];
   } else {
@@ -137,43 +137,92 @@ function label(text, cell, align) {
   return g;
 }
 
-/**
- * Makes the design. before and after are { url, name }. Returns
- * { aligned, faces: [before, after] } where faces counts the faces found.
- */
-export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+/** Lays two loaded pictures into a new design. */
+async function compose({ bImg, aImg, bFaces, aFaces, align, level = true, names, layout, labels, name, gap, background }) {
   const L = LAYOUTS[layout] || LAYOUTS.side;
-  const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
-  const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
   const bothFaces = align && bFaces.length > 0 && aFaces.length > 0;
   const doc = newDoc({ name, width: L.width, height: L.height });
   doc.pages[0].background = background;
   await openDocument(doc);
   const cs = cells(layout, L.width, L.height, gap);
   const eyeTarget = { dist: Math.min(cs[0].w * 0.27, cs[0].h * 0.18), y: layout === 'stack' ? 0.42 : 0.4 };
-  const plans = [plan(bImg, bothFaces ? bFaces[0] : null, cs[0], eyeTarget), plan(aImg, bothFaces ? aFaces[0] : null, cs[1], eyeTarget)];
+  const plans = [plan(bImg, bothFaces ? bFaces[0] : null, cs[0], eyeTarget, level), plan(aImg, bothFaces ? aFaces[0] : null, cs[1], eyeTarget, level)];
   // Lined-up faces zoom together so they stay the same size.
   const shared = Math.max(plans[0].grow, plans[1].grow);
   const out = [];
-  for (const [i, img, src, text] of [
-    [0, bImg, before, labels[0]],
-    [1, aImg, after, labels[1]],
+  for (const [i, img, text] of [
+    [0, bImg, labels[0] || 'Before'],
+    [1, aImg, labels[1] || 'After'],
   ]) {
     const cell = cs[i];
     const crop = cropToCell(img, cell, plans[i], bothFaces ? shared : plans[i].grow);
     const blob = await new Promise((r) => crop.canvas.toBlob(r, 'image/jpeg', 0.93));
     const el = await loadImage(registerBlob(blob));
-    const photo = new fabric.FabricImage(el, { uid: uid(), name: `${text} photo`, frameShape: { kind: 'rect', r: 0 }, left: cell.x, top: cell.y, scaleX: 1 / crop.k, scaleY: 1 / crop.k, sourceName: src.name });
+    const photo = new fabric.FabricImage(el, { uid: uid(), name: `${text} photo`, frameShape: { kind: 'rect', r: 0 }, left: cell.x, top: cell.y, scaleX: 1 / crop.k, scaleY: 1 / crop.k, sourceName: names[i] });
     decorate(photo);
     canvas.add(photo);
     out.push(photo);
   }
   if (labels[0]) canvas.add(label(labels[0], cs[0], 'left'));
   if (labels[1]) canvas.add(label(labels[1], cs[1], layout === 'stack' ? 'left' : 'right'));
+  return { cells: cs, aligned: bothFaces, photos: out, size: [L.width, L.height] };
+}
+
+const finish = () => {
   canvas.discardActiveObject();
   canvas.requestRenderAll();
   record(true);
-  return { aligned: bothFaces, faces: [bFaces.length, aFaces.length], photos: out, layout, size: [state.doc.width, state.doc.height] };
+};
+
+/**
+ * Makes the design. before and after are { url, name }. Returns
+ * { aligned, faces: [before, after] } where faces counts the faces found.
+ */
+export async function makeBeforeAfter({ before, after, layout = 'side', labels = ['Before', 'After'], align = true, name = 'Before and after', gap = 8, background = '#ffffff' }) {
+  const [bImg, aImg] = await Promise.all([loadImage(before.url), loadImage(after.url)]);
+  const [bFaces, aFaces] = align ? await Promise.all([detectFaces(bImg, { key: before.url }), detectFaces(aImg, { key: after.url })]) : [[], []];
+  const r = await compose({ bImg, aImg, bFaces, aFaces, align, names: [before.name, after.name], layout, labels, name, gap, background });
+  finish();
+  return { aligned: r.aligned, faces: [bFaces.length, aFaces.length], photos: r.photos, layout, size: r.size };
+}
+
+// How far a goal preview pushes the one-click amounts.
+export const STRENGTHS = { light: 0.7, medium: 1.2, strong: 1.7 };
+
+/** The gold tag on a goal preview that marks it as a simulation. */
+function simTag(cell, text = 'Simulated goal') {
+  const size = Math.round(Math.min(cell.w, cell.h) * 0.042);
+  const t = new fabric.Textbox(text.toUpperCase(), { fontFamily: brandFont('heading') || 'Arial', fontWeight: 'bold', fontSize: size, charSpacing: 160, fill: '#101c2b', textAlign: 'center', width: size * (text.length * 0.95 + 1.6) });
+  t.initDimensions();
+  const padX = size * 0.8;
+  const padY = size * 0.4;
+  const bg = new fabric.Rect({ left: 0, top: 0, width: t.width + padX * 2, height: t.height + padY * 2, rx: size * 0.4, ry: size * 0.4, fill: '#e0b45a' });
+  t.set({ left: padX, top: padY });
+  const g = new fabric.Group([bg, t], { uid: uid(), name: 'Simulated goal tag' });
+  const margin = Math.round(Math.min(cell.w, cell.h) * 0.045);
+  g.set({ left: cell.x + cell.w - g.width - margin, top: cell.y + margin });
+  g.setCoords();
+  decorate(g);
+  return g;
+}
+
+/**
+ * A goal preview: the photo as it is today beside a simulated goal with the
+ * chosen fixes applied, tagged as a simulation. photo is { url, name };
+ * fixes are Quick fixes ids. Returns { faces, fixes, amounts }.
+ */
+export async function makeGoalPreview({ photo, fixes = ['slimFace', 'slimBody'], amounts = null, strength = 'medium', layout = 'side', labels = ['Today', 'Goal'], name, tag = 'Simulated goal', gap = 8, background = '#ffffff', say }) {
+  const { renderLook, settingsFor } = await import('./quickfix.js');
+  const img = await loadImage(photo.url);
+  const settings = settingsFor(fixes, amounts, STRENGTHS[strength] || 1);
+  const goal = await renderLook(img, fixes, settings, { key: photo.url, say });
+  // The eyes stay where they were, so the faces from the original line both up.
+  // A body goal shows the whole photo, since zooming to the face hides the body.
+  const faces = await detectFaces(img, { key: photo.url });
+  const r = await compose({ bImg: img, aImg: goal.canvas, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: [photo.name, photo.name], layout, labels, name: name || `${photo.name.replace(/\.[^.]+$/, '')} goal preview`, gap, background });
+  canvas.add(simTag(r.cells[1], tag || 'Simulated goal'));
+  finish();
+  return { faces: faces.length, fixes, amounts: settings, layout, size: r.size };
 }
 
 /** The Before and after window: pick two photos, a layout and the labels. */
@@ -219,6 +268,75 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   try {
     const r = await makeBeforeAfter({ before: S.before, after: S.after, layout: S.layout, labels: S.labels, align: S.align });
     toast(r.aligned || !S.align ? 'Before and after made.' : `No face found in the ${r.faces[0] ? 'after' : 'before'} photo, so both are centred instead.`);
+  } finally {
+    note.done();
+  }
+}
+
+/** The Goal preview window: one photo, which fixes, how strong. */
+export async function goalPreviewDialog({ pickPhoto, confirmDiscard }) {
+  const { h, modal, toast } = await import('./ui.js');
+  const { PRESETS } = await import('./beauty.js');
+  const S = { photo: null, fixes: new Set(['slimFace', 'slimBody']), strength: 'medium', layout: 'side', labels: ['Today', 'Goal'] };
+  const nameEl = h('span', { class: 'ba-file' }, 'None picked');
+  const pickBtn = h(
+    'button',
+    {
+      class: 'ba-pick',
+      onclick: async () => {
+        const f = await pickPhoto();
+        if (!f) return;
+        S.photo = f;
+        nameEl.textContent = f.name;
+        pickBtn.classList.add('picked');
+      },
+    },
+    h('strong', {}, 'Patient photo'),
+    nameEl,
+  );
+  const chips = h(
+    'div',
+    { class: 'fix-grid' },
+    ['slimFace', 'slimBody', 'smooth', 'glow'].map((id) =>
+      h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id))) }, PRESETS[id].label),
+    ),
+  );
+  const segOf = (opts, key) => {
+    const el = h(
+      'div',
+      { class: 'seg ba-seg' },
+      opts.map(([id, text]) => h('button', { class: id === S[key] ? 'on' : '', onclick: (e) => ((S[key] = id), [...el.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget))) }, text)),
+    );
+    return el;
+  };
+  const strength = segOf([['light', 'Light'], ['medium', 'Medium'], ['strong', 'Strong']], 'strength');
+  strength.style.gridTemplateColumns = '1fr 1fr 1fr';
+  const layout = segOf(Object.entries(LAYOUTS).map(([id, l]) => [id, l.short]), 'layout');
+  const field = (i) => h('input', { class: 'field', value: S.labels[i], oninput: (e) => (S.labels[i] = e.target.value) });
+  const body = h(
+    'div',
+    { class: 'stack gap ba-dialog' },
+    pickBtn,
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Goal'), chips),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Strength'), strength),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layout),
+    h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Labels'), h('div', { class: 'ba-labels' }, field(0), field(1))),
+    h('p', { class: 'muted small' }, 'The goal side carries a Simulated goal tag, since it shows what the program aims for and not a result yet.'),
+  );
+  const ok = await modal('Goal preview', body, [
+    { label: 'Cancel', value: false },
+    { label: 'Create', value: true, primary: true },
+  ]);
+  if (!ok) return;
+  if (!S.photo) return toast('Pick the patient photo.', { error: true });
+  if (!S.fixes.size) return toast('Pick at least one goal.', { error: true });
+  if (!(await confirmDiscard())) return;
+  const note = toast('Making the goal', { sticky: true });
+  try {
+    const r = await makeGoalPreview({ photo: S.photo, fixes: [...S.fixes], strength: S.strength, layout: S.layout, labels: S.labels, say: (t, f) => (note.text(t), f != null && note.progress(f)) });
+    toast(r.faces ? 'Goal preview made.' : 'No face found, so only Slim body and colour ran.');
+  } catch (e) {
+    toast(e.message || String(e), { error: true });
   } finally {
     note.done();
   }

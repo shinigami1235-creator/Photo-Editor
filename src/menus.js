@@ -7,7 +7,7 @@ const ADJ = ['brightness', 'levels', 'curves', 'exposure', 'vibrance', 'hsl', 'g
 export const MENUS = ({ savedSelections }) => [
   {
     name: 'File',
-    items: ['file.new', 'file.open', 'file.home', '-', 'file.save', 'file.saveas', '-', 'file.place', '-', 'file.export', 'file.batch', 'file.beforeAfter', 'file.sizes', 'file.template', '-', 'file.check', 'file.print'],
+    items: ['file.new', 'file.open', 'file.home', '-', 'file.save', 'file.saveas', '-', 'file.place', '-', 'file.export', 'file.batch', 'file.beforeAfter', 'file.goalPreview', 'file.sizes', 'file.template', '-', 'file.check', 'file.print'],
   },
   {
     name: 'Edit',

@@ -21,11 +21,9 @@ import { NEUTRAL, BANDS, autoSettings } from './adjust.js';
 import { BLEND_MODES } from './layerfx.js';
 import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { toast } from './ui.js';
-import { NEUTRAL as ADJ_NEUTRAL, adjustPixels } from './adjust.js';
-import { quickFix, activeFixes, glowLook } from './quickfix.js';
-import { PRESETS, NONE as FIX_NONE, renderFixes } from './beauty.js';
+import { quickFix, activeFixes, settingsFor, renderLook } from './quickfix.js';
 import { detectFaces } from './faces.js';
-import { makeBeforeAfter, LAYOUTS } from './beforeafter.js';
+import { makeBeforeAfter, makeGoalPreview, LAYOUTS, STRENGTHS } from './beforeafter.js';
 import { listDir } from './platform.js';
 import { loadImage } from './assets.js';
 
@@ -490,7 +488,7 @@ const TOOLS = {
   async retouch({ id, fixes = [], on = true, amounts }) {
     const o = layer(id);
     if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Quick fixes work on photos.`);
-    const ids = fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
+    const ids = fixIds(fixes);
     say(`quick fixes: ${ids.join(', ') || 'amounts'}`);
     const r = await quickFix(o, ids, { on, amounts });
     return { text: JSON.stringify({ message: r.message, faces: r.faces, amounts: r.settings, on: activeFixes(o) }) };
@@ -535,13 +533,8 @@ const TOOLS = {
     if (!output_folder) fail('Give the folder to save the results in.');
     const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
     if (!MIME[fmt]) fail('format is png, jpg or webp.');
-    const ids = fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
-    const settings = { ...FIX_NONE };
-    for (const id of ids) {
-      if (!PRESETS[id]) fail(`Unknown fix ${id}. Fixes: ${Object.keys(PRESETS).join(', ')}.`);
-      for (const [k, v] of Object.entries(PRESETS[id].set)) settings[k] = Math.max(settings[k], v);
-    }
-    Object.assign(settings, amounts || {});
+    const ids = fixIds(fixes);
+    const settings = settingsFor(ids, amounts);
     const done = [];
     for (let i = 0; i < files.length; i++) {
       const path = files[i];
@@ -554,13 +547,7 @@ const TOOLS = {
       }
       try {
         const img = await loadImage(await host.pictureUrl(baseName(path), await readFileAt(path)));
-        const r = await renderFixes(img, settings, { key: path });
-        if (ids.includes('glow')) {
-          const x = r.canvas.getContext('2d', { willReadFrequently: true });
-          const d = x.getImageData(0, 0, r.canvas.width, r.canvas.height);
-          adjustPixels(d.data, d.width, d.height, { ...ADJ_NEUTRAL, ...glowLook(r.canvas) });
-          x.putImageData(d, 0, 0);
-        }
+        const r = await renderLook(img, ids, settings, { key: path });
         await writeFile(outPath, await encodeCanvas(r.canvas, { format: fmt, quality: +quality }), MIME[fmt]);
         done.push({ file: path, saved: outPath, faces: r.faces });
       } catch (e) {
@@ -608,6 +595,55 @@ const TOOLS = {
     return { text: JSON.stringify({ results }) };
   },
 
+  async goal_preview({ photo, fixes = ['slim_face', 'slim_body'], amounts, strength = 'medium', layout = 'side', labels = ['Today', 'Goal'], name, discard_changes = false }) {
+    if (!photo) fail('Give the full path of the patient photo.');
+    if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
+    if (!STRENGTHS[strength]) fail(`strength is one of ${Object.keys(STRENGTHS).join(', ')}.`);
+    if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
+    const r = await makeGoalPreview({ photo: await loadPath(photo), fixes: fixIds(fixes), amounts, strength, layout, labels, name });
+    say('goal preview made');
+    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The goal side carries a Simulated goal tag. Keep it on whenever the picture is shown.', layers: layersJson() }) };
+  },
+
+  async batch_goal_preview({ photos = [], fixes = ['slim_face', 'slim_body'], amounts, strength = 'medium', output_folder, layout = 'side', labels = ['Today', 'Goal'], format = 'jpg', quality = 0.92, save_designs = true, overwrite = false, discard_changes = false }) {
+    if (!photos.length) fail('Give the patient photos as full paths.');
+    if (!output_folder) fail('Give the folder to save the results in.');
+    if (!LAYOUTS[layout]) fail(`layout is one of ${Object.keys(LAYOUTS).join(', ')}.`);
+    if (!STRENGTHS[strength]) fail(`strength is one of ${Object.keys(STRENGTHS).join(', ')}.`);
+    const fmt = String(format).toLowerCase().replace('jpeg', 'jpg');
+    if (!MIME[fmt]) fail('format is png, jpg or webp.');
+    if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
+    const ids = fixIds(fixes);
+    const results = [];
+    for (let i = 0; i < photos.length; i++) {
+      const item = typeof photos[i] === 'string' ? { photo: photos[i] } : photos[i];
+      const stem = (item.name || `${baseName(item.photo).replace(/\.[^.]+$/, '')} goal preview`).replace(/[\\/:*?"<>|]+/g, '-');
+      const picture = joinPath(output_folder, `${stem}.${fmt}`);
+      const design = joinPath(output_folder, `${stem}.zip`);
+      say(`goal preview ${i + 1} of ${photos.length}`);
+      try {
+        if (!overwrite && ((await exists(picture)) || (save_designs && (await exists(design))))) {
+          results.push({ name: stem, skipped: 'already exists' });
+          continue;
+        }
+        const r = await makeGoalPreview({ photo: await loadPath(item.photo), fixes: ids, amounts, strength, layout, labels: item.labels || labels, name: stem });
+        syncCurrentPage();
+        const el = await renderPage(currentPage(), 1);
+        await writeFile(picture, await encodeCanvas(el, { format: fmt, quality: +quality }), MIME[fmt]);
+        if (save_designs) {
+          await writeFile(design, await buildZip(state.doc), 'application/zip');
+          if (isDesktop) state.path = design;
+          state.dirty = false;
+          emit('dirty');
+        }
+        results.push({ name: stem, picture, design: save_designs ? design : undefined, faces_found: r.faces });
+      } catch (e) {
+        results.push({ name: stem, error: e.message || String(e) });
+      }
+    }
+    return { text: JSON.stringify({ results }) };
+  },
+
   async export_image({ path, format, scale = 1, quality = 0.92, transparent = false, pages = 'current', overwrite = false }) {
     if (!path) fail('Give a full path for the picture, or a folder when exporting all pages.');
     const fmt = (format || (path.match(/\.(png|jpe?g|webp)$/i)?.[1] || 'png')).toLowerCase().replace('jpeg', 'jpg');
@@ -631,6 +667,12 @@ const TOOLS = {
 // Short names a person or another assistant might use for the fixes.
 const FIX_ALIAS = { glow_up: 'glow', glowup: 'glow', glow: 'glow', smooth_skin: 'smooth', smoothen: 'smooth', smooth: 'smooth', skin: 'smooth', slim_face: 'slimFace', slimface: 'slimFace', face: 'slimFace', slim_body: 'slimBody', slimbody: 'slimBody', body: 'slimBody', enhance_faces: 'enhance', enhance: 'enhance', restore: 'enhance', bright_eyes: 'eyes', eyes: 'eyes', whiten_teeth: 'teeth', teeth: 'teeth' };
 
+const fixIds = (fixes = []) => fixes.map((f) => FIX_ALIAS[String(f).toLowerCase().replace(/[\s-]+/g, '_')] || f);
+
+async function loadPath(path) {
+  return { name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) };
+}
+
 async function pairDesign({ before, after, layout, labels, align_faces, name }) {
   const load = async (path) => ({ name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) });
   const [b, a] = await Promise.all([load(before), load(after)]);
@@ -649,6 +691,7 @@ const BLOCKED = new Map([
   ['file.home', 'Use new_design or open_file.'],
   ['file.batch', 'Gid runs batch export himself. Use batch_retouch or batch_before_after for groups of photos.'],
   ['file.beforeAfter', 'Use before_after with two paths.'],
+  ['file.goalPreview', 'Use goal_preview with the photo path.'],
   ['file.sizes', 'Gid runs Make other sizes himself.'],
   ['file.template', 'Gid saves templates himself.'],
   ['file.print', 'Gid opens the print preview himself.'],
