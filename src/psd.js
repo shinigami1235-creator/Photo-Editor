@@ -77,7 +77,18 @@ function applyClip(layer, base) {
  * layers run bottom to top as { name, canvas, left, top, opacity, hidden, blend }.
  */
 export function readPhotoshop(bytes) {
-  const psd = readPsd(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), { skipThumbnail: true });
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  // The page is built from the layers, so the flattened copy Photoshop stores
+  // is skipped: ag-psd can't read it in CMYK files with extra channels (spot
+  // colours, saved selections). It's read only for files without layers.
+  let psd = readPsd(buf, { skipThumbnail: true, skipCompositeImageData: true });
+  if (!psd.children?.length) {
+    try {
+      psd = readPsd(buf, { skipThumbnail: true });
+    } catch (e) {
+      throw new Error(`It has no layers, and its flattened picture can't be read (${e.message}). Save a copy from Photoshop in RGB and open that.`);
+    }
+  }
   const layers = [];
   const skipped = { adjustments: 0, blends: new Set() };
   let base = null;
