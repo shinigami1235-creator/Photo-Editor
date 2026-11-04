@@ -278,10 +278,11 @@ const TOOLS = {
   },
 
   async open_file({ path, discard_changes = false }) {
-    if (!path) fail('Give the full path of a design (.zip), picture or RAW file.');
+    if (!path) fail('Give the full path of a design (.zip), Photoshop file (.psd), picture or RAW file.');
     if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
     const bytes = await readFileAt(path);
-    await host.openBytes({ name: baseName(path), path: isDesktop ? path : null, bytes });
+    const problem = await host.openBytes({ name: baseName(path), path: isDesktop ? path : null, bytes });
+    if (problem) fail(problem);
     say(`opened ${baseName(path)}`);
     return { text: `Opened ${baseName(path)}: ${state.doc.width} × ${state.doc.height} px with ${designObjects().length} layers.` };
   },
@@ -532,7 +533,7 @@ const TOOLS = {
   async list_files({ folder, extensions, include_folders = false }) {
     if (!folder) fail('Give the full path of a folder.');
     if (!isDesktop) fail('Folders can only be listed in the desktop app.');
-    const exts = (extensions || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'tif', 'tiff', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'raf', 'orf', 'rw2', 'zip']).map((e) => String(e).toLowerCase().replace(/^\./, ''));
+    const exts = (extensions || ['jpg', 'jpeg', 'png', 'webp', 'heic', 'tif', 'tiff', 'cr2', 'cr3', 'nef', 'arw', 'dng', 'raf', 'orf', 'rw2', 'psd', 'zip']).map((e) => String(e).toLowerCase().replace(/^\./, ''));
     const all = await listDir(folder);
     const list = all
       .filter((f) => (f.folder ? include_folders : exts.includes((f.name.split('.').pop() || '').toLowerCase())))
@@ -641,7 +642,8 @@ const TOOLS = {
       if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true.');
       if (side_by_side) r = await makeTouchUpPair({ photo: await loadPath(photo), ...opts, ...pairOptions(args), layout, labels, name });
       else {
-        await host.openBytes({ name: baseName(photo), path: isDesktop ? photo : null, bytes: await readFileAt(photo) });
+        const problem = await host.openBytes({ name: baseName(photo), path: isDesktop ? photo : null, bytes: await readFileAt(photo) });
+        if (problem) fail(problem);
         r = await touchUpLayer(pagePhotos()[0], opts);
       }
     }
@@ -675,7 +677,8 @@ const TOOLS = {
         let r;
         if (side_by_side) r = await makeTouchUpPair({ photo: await loadPath(item.photo), ...opts, ...pair, layout, labels: item.labels || labels, name: stem });
         else {
-          await host.openBytes({ name: baseName(item.photo), path: null, bytes: await readFileAt(item.photo) });
+          const problem = await host.openBytes({ name: baseName(item.photo), path: null, bytes: await readFileAt(item.photo) });
+          if (problem) throw new Error(problem);
           state.doc.name = stem;
           r = await touchUpLayer(pagePhotos()[0], opts);
         }

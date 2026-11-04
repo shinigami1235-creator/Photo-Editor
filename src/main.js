@@ -3,7 +3,7 @@ import '@fontsource/ibm-plex-sans/latin-500.css';
 import '@fontsource/ibm-plex-sans/latin-600.css';
 import '@fontsource/cinzel/latin-600.css';
 import './styles.css';
-import { initCanvas, canvas, fabric, fitToScreen, zoomTo, zoomBy, selected, scenePoint, objectAt, designObjects, enliven } from './canvas.js';
+import { initCanvas, canvas, fabric, fitToScreen, zoomTo, zoomBy, selected, scenePoint, objectAt, designObjects, enliven, decorate } from './canvas.js';
 import { state, SIZE_PRESETS, newDoc, on, emit, uid, currentPage } from './state.js';
 import { watchCanvas, undo, redo, canUndo, canRedo, record } from './history.js';
 import { initFrames, inCrop, exitCrop, enterCrop, isPhoto, isEmptyFrame } from './frames.js';
@@ -521,7 +521,7 @@ async function save(as) {
 
 async function openDesign() {
   if (!(await confirmDiscard())) return;
-  const files = await pickFiles({ extensions: ['zip', 'png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], multiple: true, label: 'Designs, images and RAW files' });
+  const files = await pickFiles({ extensions: ['zip', 'psd', 'png', 'jpg', 'jpeg', 'webp', ...RAW_EXTENSIONS], multiple: true, label: 'Designs, images, Photoshop and RAW files' });
   if (!files?.length) return;
   if (files.length === 1) return openBytes(files[0]);
   const pics = files.filter((f) => isImageName(f.name) || isRawName(f.name));
@@ -594,14 +594,65 @@ async function pictureUrl(name, bytes) {
   }
 }
 
+const isPsdName = (name) => /\.psd$/i.test(name);
+
+/** Opens a Photoshop file with each layer as its own layer, at the PSD's size. */
+async function openPsd(f) {
+  const note = toast(`Reading ${f.name}`, { sticky: true });
+  try {
+    const { readPhotoshop } = await import('./psd.js');
+    const psd = readPhotoshop(f.bytes);
+    const doc = newDoc({ name: f.name.replace(/\.[^.]+$/, ''), width: psd.width, height: psd.height });
+    doc.pages[0].background = '#ffffff';
+    await openDocument(doc);
+    const list = psd.layers.length ? psd.layers : psd.composite ? [{ name: 'Photo', canvas: psd.composite, left: 0, top: 0, opacity: 1, hidden: false, blend: 'source-over' }] : [];
+    if (!list.length) throw new Error(`${f.name} has no layers with pixels.`);
+    for (const l of list) {
+      const blob = await new Promise((r) => l.canvas.toBlob(r, 'image/png'));
+      const url = registerBlob(blob);
+      const el = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+      const o = new fabric.FabricImage(el, { uid: uid(), name: l.name, frameShape: { kind: 'rect', r: 0 }, left: l.left, top: l.top, opacity: l.opacity, visible: !l.hidden, globalCompositeOperation: l.blend });
+      decorate(o);
+      canvas.add(o);
+    }
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+    canvas.fire('object:modified', { target: canvas.getObjects()[0] });
+    const left = [];
+    if (psd.skipped.adjustments) left.push(`${psd.skipped.adjustments} adjustment layer${psd.skipped.adjustments === 1 ? '' : 's'}`);
+    if (psd.skipped.blends.size) left.push(`the ${[...psd.skipped.blends].join(', ')} blend mode${psd.skipped.blends.size === 1 ? '' : 's'}, shown as Normal`);
+    toast(`Opened ${f.name} with ${list.length} layer${list.length === 1 ? '' : 's'}.${left.length ? ` Left out: ${left.join(' and ')}.` : ''}`);
+  } finally {
+    note.done();
+  }
+}
+
+/** Opens a design, Photoshop file, picture or RAW file. Returns null, or the reason it failed. */
 async function openBytes(f) {
+  const failed = (msg) => {
+    toast(msg, { error: true });
+    return msg;
+  };
+  if (isPsdName(f.name)) {
+    try {
+      await openPsd(f);
+      return null;
+    } catch (e) {
+      return failed(e?.message?.includes('has no layers') ? e.message : `${f.name} could not be opened. ${e?.message || ''}`.trim());
+    }
+  }
   if (isImageName(f.name) || isRawName(f.name)) {
     try {
       await openImage(f);
+      return null;
     } catch {
-      toast(`${f.name} could not be opened.`, { error: true });
+      return failed(`${f.name} could not be opened.`);
     }
-    return;
   }
   try {
     const doc = await readZip(f.bytes);
@@ -609,8 +660,9 @@ async function openBytes(f) {
     await openDocument(doc, f.path);
     if (f.path) setTimeout(() => rememberRecent(f.path, doc.name, doc.pages[0]?.thumb), 1500);
     toast(`Opened ${f.name}.`);
+    return null;
   } catch {
-    toast(`${f.name} could not be opened.`, { error: true });
+    return failed(`${f.name} could not be opened.`);
   }
 }
 
@@ -1028,7 +1080,7 @@ function setupDrop() {
         } catch {
           toast(`${file.name} could not be read as a font.`, { error: true });
         }
-      } else if (file.name.toLowerCase().endsWith('.zip')) {
+      } else if (file.name.toLowerCase().endsWith('.zip') || isPsdName(file.name)) {
         if (await confirmDiscard()) await openBytes({ name: file.name, path: null, bytes });
       } else if (file.name.toLowerCase().endsWith('.cube')) {
         emit('cube-dropped', { name: file.name, bytes });

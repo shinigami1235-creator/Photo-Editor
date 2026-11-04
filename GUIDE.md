@@ -31,7 +31,8 @@ The start screen shows when the app opens. Click the logo at the top left, or Fi
 
 - **New design:** Instagram post 4:5, Instagram post 1:1, Story 9:16, Facebook cover, A4 flyer at 300 dpi, or Custom size.
 - **Panorama carousel:** one wide page cut into 2 to 10 slides on export, so a photo or a line runs across the swipe. Pick the number of slides and the slide shape.
-- **Open design or picture:** design files (.zip), PNG, JPG, WebP and camera RAW files (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2 and more). A picture opens as a new design at its own size.
+- **Open design or picture:** design files (.zip), Photoshop files (.psd), PNG, JPG, WebP and camera RAW files (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2 and more). A picture opens as a new design at its own size.
+- **Photoshop files:** each layer comes in as its own layer at the same place, with its name, opacity, visibility and blend mode. Layers inside groups keep the group name in front, such as "Header / Logo". Layer masks and clipping masks are applied to the pixels, so the page looks the way it did in Photoshop. Text, shapes and smart objects come in as pictures of how they look, so retype text with the Text tool. Layer effects such as drop shadow and stroke, and adjustment layers, are left out, and the message after opening says what was left out. CMYK files open converted to RGB, with colours a little brighter than Photoshop shows them.
 - **Recent designs:** the last 12 designs you saved or opened.
 
 You can also drag pictures from File Explorer or Finder onto the page, or paste a screenshot with Ctrl+V.

@@ -27,6 +27,10 @@ The Mac app needs macOS 12 or newer. It is not signed with an Apple developer ac
 - **Enhance faces:** RestoreFormer++ (Apache 2.0), converted from the facefusion ONNX export: debug outputs removed, simplified and stored as fp16 (148 MB). It downloads the first time Enhance faces or Glow up runs, from the `models` branch of this repo in two parts, with the facefusion fp32 file as the fallback. It was trained on FFHQ, whose photos are under their own licences, which matters only if the editor is ever sold. CodeFormer was studied for the method but not used, since its S-Lab licence rules out commercial use.
 - **Upscale:** Real-ESRGAN general x4v3 (4.9 MB, BSD 3-Clause) ships inside the app as `public/models/upscale-x4.onnx`. It was converted from the original `realesr-general-x4v3.pth` release weights.
 
+## Photoshop files
+
+PSD files are read with ag-psd (MIT). `src/psd.js` turns each pixel layer into a photo layer, bakes layer masks and clipping masks into the pixels, maps the blend modes the canvas supports, and switches on ag-psd's 8-bit CMYK decoding, which ships turned off.
+
 ## Print colours
 
 CMYK PDFs are converted with LittleCMS through one of two ECI press profiles in `public/icc`: ISO Coated v2 (FOGRA39) for coated paper and PSO Uncoated ISO12647 (FOGRA47) for uncoated. The European Color Initiative makes both free to use and share. The profile goes into the PDF as its output intent, which print shops check. Pantone colours are not included since Pantone licenses its colour books.
@@ -66,6 +70,7 @@ Shape combining uses polygon-clipping (MIT).
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
 | `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Touch up |
+| `src/psd.js` | Opening Photoshop files as layers |
 | `src/pose.js` | Body points with MoveNet, for lining up body photos |
 | `src/defaults.js` | The Save as default settings that new files and Claude's batches start from |
 | `src/badge.js` | Label and tag layers (BEFORE, SIMULATED GOAL) whose words and colours stay editable |
