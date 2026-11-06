@@ -4,21 +4,33 @@ Photo Editor makes Instagram posts, stories, carousels, Facebook covers and prin
 
 ## Installing it
 
-GitHub builds the installers from the code in shinigami1235-creator/Photo-Editor. You need a free GitHub account to download them.
+Install it once. After that, every change I make reaches the app on its own, so the .bat files are only needed for working on the code.
 
-1. Open github.com/shinigami1235-creator/Photo-Editor and click Actions.
-2. Click the newest Build with a green tick.
-3. Scroll to Artifacts at the bottom and download Photo Editor for Windows or Photo Editor for Mac.
+GitHub builds the installers from the code in shinigami1235-creator/Photo-Editor each time it changes, and the newest ones are always at the same links:
+
+- Windows: github.com/shinigami1235-creator/Photo-Editor/releases/download/newest/Photo-Editor-Windows-Setup.exe
+- Mac with Apple Silicon (M1 and newer): .../newest/Photo-Editor-Mac-Apple-Silicon.dmg
+- Older Intel Mac: .../newest/Photo-Editor-Mac-Intel.dmg
 
 ### Windows
 
-1. Unzip the download and double-click the file ending in `x64-setup.exe`.
+1. Open the Windows link and double-click the downloaded `Photo-Editor-Windows-Setup.exe`.
 2. Windows shows "Windows protected your PC" since the app is not signed. Click More info, then Run anyway.
 3. Photo Editor is added to the Start menu.
 
+### Updates
+
+A little after Photo Editor opens, and every 4 hours while it's open, it checks GitHub for a newer version and downloads it quietly. When one is ready, **Update ready** shows in the top bar next to search.
+
+- Click Update ready, then Install now. Photo Editor closes for a few seconds and opens again on the new version. A design with unsaved changes comes back through Restore design.
+- Click Later, or ignore it, and the update installs when you close Photo Editor.
+- Help > Check for updates looks right away. Help > About shows the version you're on.
+
+Every update is checked against the signing key built into the app before it installs, so only builds from this repository get in.
+
 ### Mac
 
-1. Unzip the download. It holds two files: `aarch64` is for Apple Silicon Macs (M1 and newer) and `x64` is for older Intel Macs. Apple menu > About This Mac says which one you have.
+1. Download the Apple Silicon or Intel link. Apple menu > About This Mac says which chip you have.
 2. Open the .dmg and drag Photo Editor into Applications.
 3. The first open is blocked since the app is not signed with an Apple developer account. Open System Settings > Privacy & Security, scroll down and click Open Anyway next to Photo Editor.
 4. If the Mac says the app is damaged, open Terminal and run `xattr -cr "/Applications/Photo Editor.app"`, then open it again.
@@ -313,6 +325,7 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 
   It can't fix a different camera angle, such as the body turned more in one photo or shot from higher up, so take both from the same spot, height and pose. The message after says what it lined up by, or that it found nothing to match in both and centred them.
 - **Touch up:** for right after a session, when the result can't be seen yet. Select a photo and press Touch up at the top of Properties (it's also in the Image menu, and with nothing selected it's under the page settings). Pick the touch ups (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Apply. The photo gets a Simulated goal tag in its top corner.
+  - The window doesn't darken or block the design. Drag it by its title to wherever the photo is in view, and the photo changes as you move Amount or tick a touch up. Cancel puts the photo back the way it was. The Before and after window works the same way.
   - With two or more photos on the page, pick which one under Photo. Only that one changes.
   - With one photo, tick Keep the original beside it to get the untouched photo next to the touched-up copy as a new design, with Today and Goal labels. Face touch ups zoom in on the face and body ones show the whole photo.
   - With nothing open, it asks for a picture.

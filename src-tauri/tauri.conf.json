@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_THE_PUBLIC_KEY_FROM_MAKE_SIGNING_KEY_BAT",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExQ0YyNDQ3RDcwQUZEQzAKUldUQS9RclhSeVRQRVIwZUlKZEZmMHo5MnZQNm96cURMdzdWbUxsUnU4WTFVRWUyWW15WC9wRGYK",
       "endpoints": [
         "https://github.com/shinigami1235-creator/Photo-Editor/releases/download/newest/latest.json"
       ],

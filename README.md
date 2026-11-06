@@ -2,6 +2,12 @@
 
 My own editor for Instagram posts, stories, carousels and flyers for the clinic and Sognare, in the Cygnus Tools style. It is a Tauri desktop app for Windows and Mac with the editing done in Fabric.js. How to use every part of it is in [GUIDE.md](GUIDE.md). This file covers running it, building it and how the code is laid out.
 
+## Installing and updates
+
+For everyday use, install it from github.com/shinigami1235-creator/Photo-Editor/releases/download/newest/Photo-Editor-Windows-Setup.exe. Every push to main builds a signed update, and the installed app picks it up by itself (see Updates in [GUIDE.md](GUIDE.md)). The steps below are for working on the code.
+
+Updates are signed with the key in the `signing` folder on my laptop. GitHub holds the private half as the secret `TAURI_SIGNING_PRIVATE_KEY`, and the public half is `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`. Keep the `signing` folder and never commit it, since a new key would stop the installed app from accepting updates until it's installed again by hand.
+
 ## Starting it on Windows
 
 Node.js and Rust are needed, the same setup the PDF reader and the Video Editor use.
@@ -15,7 +21,7 @@ Node.js and Rust are needed, the same setup the PDF reader and the Video Editor 
 
 ## The Mac version
 
-GitHub builds the Mac version since it can only be made on a Mac. The workflow in `.github/workflows/build.yml` runs on every push to main and makes three files: the Windows installer, a Mac app for Apple Silicon (M1 and newer) and a Mac app for older Intel Macs. To make new ones by hand, open the repository on github.com, click Actions, click Build, then Run workflow. The files are under Artifacts at the bottom of the run's page after about 15 minutes.
+GitHub builds the Mac version since it can only be made on a Mac. The workflow in `.github/workflows/build.yml` runs on every push to main, numbers the build 0.4.(run number), and puts the Windows installer, the two Mac apps, their update files and `latest.json` on the release called newest. To make new ones by hand, open the repository on github.com, click Actions, click Build, then Run workflow. It takes about 15 minutes.
 
 The Mac app needs macOS 12 or newer. It is not signed with an Apple developer account ($99 a year), so the first open needs Open Anyway in System Settings under Privacy & Security. The app shows Cmd and Option in its labels on a Mac.
 
@@ -69,6 +75,7 @@ Shape combining uses polygon-clipping (MIT).
 | `src/beauty.js` | Smooth skin, Slim face, Slim body, Bright eyes, Whiten teeth and Enhance faces, kept editable on each photo |
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
 | `src/studio.js` | Retouch studio: live preview, sliders, picking people |
+| `src/updater.js` | Checks the newest release, downloads updates, Update ready, install on close |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
 | `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Touch up |
 | `src/psd.js` | Opening Photoshop files as layers |
