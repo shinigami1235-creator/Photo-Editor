@@ -10,6 +10,9 @@
     "core:event:default",
     "core:window:allow-set-title",
     "core:window:allow-destroy",
-    "dialog:default"
+    "dialog:default",
+    "updater:default",
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }

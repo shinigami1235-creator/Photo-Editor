@@ -10,3 +10,6 @@ branding/png
 branding/pngmac
 branding/render.mjs
 !public/models/pose/
+
+# The update signing key Make signing key.bat creates. Never commit it.
+signing/

@@ -458,7 +458,7 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
   const ok = await modal('Before and after', body, [
     { label: 'Cancel', value: false },
     { label: 'Create', value: true, primary: true },
-  ]);
+  ], { float: true });
   if (!ok) return;
   if (!S.before || !S.after) return toast('Pick a before photo and an after photo.', { error: true });
   if (!(await confirmDiscard())) return;
@@ -473,6 +473,51 @@ export async function beforeAfterDialog({ pickPhoto, confirmDiscard }) {
 
 /** Photos on the current page, in stacking order. */
 export const pagePhotos = () => canvas.getObjects().filter((o) => isPhoto(o) && !o.isAdjustment);
+
+/**
+ * Shows a touch up on the photo itself while the Touch up window is open, so
+ * the photo is the preview. Cancel puts every photo back as it was.
+ */
+function livePreview(S, photos, inPlace) {
+  const status = document.createElement('div');
+  status.className = 'muted small';
+  const before = new Map();
+  let timer = null;
+  let chain = Promise.resolve();
+  const amountsOf = (b) => Object.fromEntries(['enhance', 'smooth', 'eyes', 'teeth', 'slimFace', 'slimBody'].map((k) => [k, b?.[k] || 0]));
+  const restore = async (o) => {
+    const { quickFix } = await import('./quickfix.js');
+    const b = before.get(o.uid);
+    await quickFix(o, ['glow'], { on: b.glow, amounts: amountsOf(b.beauty), subjects: b.beauty?.subjects ?? null, quiet: true });
+    before.delete(o.uid);
+  };
+  const run = async () => {
+    const { quickFix } = await import('./quickfix.js');
+    const target = inPlace() ? photos.find((o) => o.uid === S.target) : null;
+    for (const o of photos) if (o !== target && before.has(o.uid)) await restore(o);
+    if (!target) {
+      status.textContent = '';
+      return;
+    }
+    if (!before.has(target.uid)) before.set(target.uid, { beauty: target.beauty ? { ...target.beauty } : null, glow: !!target.glowPrev });
+    status.textContent = 'Updating the photo';
+    await quickFix(target, ['glow'], { on: S.fixes.has('glow'), amounts: goalAmounts([...S.fixes], S.amount), quiet: true });
+    status.textContent = 'The photo shows the touch up. Cancel puts it back.';
+  };
+  return {
+    status,
+    schedule() {
+      clearTimeout(timer);
+      timer = setTimeout(() => (chain = chain.then(run).catch((e) => (status.textContent = e.message || String(e)))), 450);
+    },
+    /** Waits for the last preview, then puts the photos back if cancelled. */
+    async finish(cancelled) {
+      clearTimeout(timer);
+      await chain;
+      if (cancelled) for (const o of photos) if (before.has(o.uid)) await restore(o);
+    },
+  };
+}
 
 /**
  * The Touch up window. With photos on the page it works on the one picked
@@ -490,9 +535,11 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
     'div',
     { class: 'fix-grid' },
     Object.keys(GOAL_MAX).map((id) =>
-      h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id))) }, PRESETS[id].label),
+      h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id)), preview.schedule()) }, PRESETS[id].label),
     ),
   );
+  const preview = livePreview(S, photos, () => !sideBySide());
+  S.onChange = () => preview.schedule();
   const tagBits = h('div', { class: 'stack gap ba-pair', hidden: !S.showTag }, colorRow('Tag', S.tagColors), rangeField('Tag size', S.tagSize, (v) => (S.tagSize = v), { min: 30, max: 150, suffix: '%' }));
   const pairBits = h('div', { class: 'stack gap ba-pair' }, h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)), labelsRow(S));
   const sideBySide = () => !photos.length || (photos.length === 1 && S.sideBySide);
@@ -500,7 +547,7 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
   let source;
   if (!photos.length) source = pickBox(S, 'photo', 'Patient photo', pickPhoto);
   else if (photos.length === 1)
-    source = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.sideBySide, onchange: (e) => ((S.sideBySide = e.target.checked), sync()) }), 'Keep the original beside it');
+    source = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.sideBySide, onchange: (e) => ((S.sideBySide = e.target.checked), sync(), preview.schedule()) }), 'Keep the original beside it');
   else
     source = h(
       'div',
@@ -514,7 +561,8 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
     { class: 'stack gap ba-dialog' },
     source,
     h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Touch up'), chips),
-    rangeField('Amount', S.amount, (v) => (S.amount = v), { min: 0, max: 100 }),
+    rangeField('Amount', S.amount, (v) => ((S.amount = v), preview.schedule()), { min: 0, max: 100 }),
+    preview.status,
     pairBits,
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.showTag, onchange: (e) => ((S.showTag = e.target.checked), (tagBits.hidden = !S.showTag)) }), 'Simulated goal tag'),
     tagBits,
@@ -525,10 +573,12 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
       await saveTag(S);
     }),
   );
+  preview.schedule();
   const ok = await modal('Touch up', body, [
     { label: 'Cancel', value: false },
     { label: 'Apply', value: true, primary: true },
-  ]);
+  ], { float: true });
+  await preview.finish(!ok);
   if (!ok) return;
   if (!S.fixes.size) return toast('Pick at least one touch up.', { error: true });
   const opts = { fixes: [...S.fixes], amount: S.amount, tagColors: S.tagColors, tagSize: S.tagSize, showTag: S.showTag };

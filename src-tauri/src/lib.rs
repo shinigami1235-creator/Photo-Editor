@@ -230,6 +230,8 @@ async fn model_download(app: AppHandle, name: Option<String>) -> Result<(), Stri
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(bridge::Bridge::default())
         .setup(|app| {
             // A connection file left by a previous run points at a closed port.

@@ -117,6 +117,7 @@ function buildLayout() {
         h('nav', { class: 'menus', id: 'menus' }),
         h('div', { class: 'doc-title', id: 'doc-title' }),
         h('span', { class: 'grow' }),
+        (updateBadge = h('button', { class: 'update-badge', hidden: true }, 'Update ready')),
         h('button', { class: 'icon-btn', title: 'Search commands (Ctrl+F)', onclick: commandSearch, html: ICONS.search }),
         h('button', { class: 'btn gold', onclick: exportDialog }, 'Export'),
       ),
@@ -1342,6 +1343,7 @@ function defineCoreCommands() {
     // Help
     'help.search': { label: 'Search commands', keys: 'Ctrl+F', run: commandSearch, global: true },
     'help.about': { label: 'About Photo Editor', run: aboutDialog },
+    'help.update': { label: 'Check for updates', run: () => import('./updater.js').then((u) => u.checkForUpdate()), also: 'new version install upgrade' },
   });
   // Tools, so the search box can switch them too.
   for (const g of TOOL_GROUPS) for (const [id, label] of g.tools) defineCommands({ [`tool.${id}`]: { label: `${label} tool`, run: () => setTool(id), hidden: false, also: 'tool' } });
@@ -1365,13 +1367,14 @@ export const savedSelectionItems = () =>
       })
     : [];
 
-function aboutDialog() {
+async function aboutDialog() {
+  const version = await (await import('./updater.js')).appVersion();
   modal(
     'About Photo Editor',
     h(
       'div',
       { class: 'stack gap' },
-      h('div', { class: 'row' }, h('span', { html: appLogo(48) }), h('div', {}, h('div', { class: 'wordmark dark' }, 'Photo ', h('span', {}, 'Editor')), h('div', { class: 'muted small' }, 'Version 0.3.0 by Cygnus Tools'))),
+      h('div', { class: 'row' }, h('span', { html: appLogo(48) }), h('div', {}, h('div', { class: 'wordmark dark' }, 'Photo ', h('span', {}, 'Editor')), h('div', { class: 'muted small' }, `Version ${version} by Cygnus Tools`))),
       h('p', { class: 'small' }, 'The layout follows PhotoCraft. Clarity, texture, dehaze, the colour mixer, auto tone, red eye and the gradient masks follow LightCraft. Both are open-source apps by Storyteller under the MIT and Apache 2.0 licences, and their methods were rewritten here in JavaScript.'),
       h('p', { class: 'small muted' }, 'Background removal uses ISNet (Apache 2.0) and upscaling uses Real-ESRGAN (BSD 3-Clause). Icons come from Lucide (ISC) and Simple Icons (CC0).'),
     ),
@@ -1481,6 +1484,8 @@ async function offerRestore() {
   }
 }
 
+let updateBadge = null;
+
 function setupCloseGuard() {
   if (!isDesktop) {
     window.addEventListener('beforeunload', (e) => {
@@ -1491,12 +1496,12 @@ function setupCloseGuard() {
   import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
     const win = getCurrentWindow();
     win.onCloseRequested(async (event) => {
-      if (!state.dirty) return;
       event.preventDefault();
-      if (await confirmDiscard()) {
-        await dataWriteJson('autosave/meta.json', { ...(await dataReadJson('autosave/meta.json', {})), dirty: false });
-        await win.destroy();
-      }
+      if (state.dirty && !(await confirmDiscard())) return;
+      await dataWriteJson('autosave/meta.json', { ...(await dataReadJson('autosave/meta.json', {})), dirty: false });
+      // A downloaded update installs now; the installer closes the app itself.
+      const { installOnClose } = await import('./updater.js');
+      if (!(await installOnClose())) await win.destroy();
     });
   });
 }
@@ -1591,6 +1596,7 @@ async function start() {
   setupClipboard();
   setupKeys();
   setupCloseGuard();
+  import('./updater.js').then(({ startUpdater }) => startUpdater(updateBadge, async () => state.doc && state.dirty && autosave()));
   setToastHook((text) => ($('#status-msg').textContent = text));
   Object.assign(prefs, await dataReadJson('layout.json', {}));
   applyPrefs();

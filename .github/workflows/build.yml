@@ -1,12 +1,17 @@
-# Builds the Windows installer and the two Mac apps (Apple Silicon and Intel).
-# It runs on every push to main, or from the Actions tab with "Run workflow".
-# The files land under Artifacts on the run's page.
+# Builds the Windows installer and the two Mac apps (Apple Silicon and Intel)
+# on every push to main, or from the Actions tab with "Run workflow", and puts
+# them on the "newest" release. Installed copies of Photo Editor check that
+# release for updates.
 name: Build
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+
+# Every build gets a higher version number, so the updater can tell it's newer.
+env:
+  APP_VERSION: 0.4.${{ github.run_number }}
 
 jobs:
   windows:
@@ -22,11 +27,23 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - name: Set the version, and sign updates when the key is there
+        shell: bash
+        env:
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(f,'utf8'));c.version=process.env.APP_VERSION;if(process.env.HAS_KEY==='true')c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(f,JSON.stringify(c,null,2))"
+          echo "Version $APP_VERSION, signed updates: $HAS_KEY"
       - run: npx tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
       - uses: actions/upload-artifact@v4
         with:
           name: Photo Editor for Windows
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
           retention-days: 30
 
   mac:
@@ -44,14 +61,81 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - name: Set the version, and sign updates when the key is there
+        shell: bash
+        env:
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(f,'utf8'));c.version=process.env.APP_VERSION;if(process.env.HAS_KEY==='true')c.bundle.createUpdaterArtifacts=true;fs.writeFileSync(f,JSON.stringify(c,null,2))"
+          echo "Version $APP_VERSION, signed updates: $HAS_KEY"
       - name: Build the Apple Silicon app
         run: npx tauri build --target aarch64-apple-darwin
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
       - name: Build the Intel app
         run: npx tauri build --target x86_64-apple-darwin
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
       - uses: actions/upload-artifact@v4
         with:
           name: Photo Editor for Mac
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz.sig
           retention-days: 30
+
+  # The newest installers on the repository's Releases page, which anyone can
+  # download from without a GitHub account, plus latest.json for the updater.
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - name: Give the files plain names
+        run: |
+          mkdir out
+          cp built/"Photo Editor for Windows"/*.exe out/Photo-Editor-Windows-Setup.exe
+          cp built/"Photo Editor for Mac"/aarch64-apple-darwin/release/bundle/dmg/*.dmg out/Photo-Editor-Mac-Apple-Silicon.dmg
+          cp built/"Photo Editor for Mac"/x86_64-apple-darwin/release/bundle/dmg/*.dmg out/Photo-Editor-Mac-Intel.dmg
+          for a in aarch64:Apple-Silicon x86_64:Intel; do
+            f=$(ls built/"Photo Editor for Mac"/${a%%:*}-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+            if [ -n "$f" ]; then cp "$f" out/Photo-Editor-Mac-${a##*:}.app.tar.gz; fi
+          done
+          ls -la out
+      - name: Write latest.json for the updater
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, datetime
+          base = f"https://github.com/{os.environ['REPO']}/releases/download/newest/"
+          platforms = {}
+          def add(key, sig_glob, asset):
+              found = glob.glob(sig_glob)
+              if found:
+                  platforms[key] = {"signature": open(found[0]).read().strip(), "url": base + asset}
+          add("windows-x86_64", "built/Photo Editor for Windows/*.exe.sig", "Photo-Editor-Windows-Setup.exe")
+          add("darwin-aarch64", "built/Photo Editor for Mac/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig", "Photo-Editor-Mac-Apple-Silicon.app.tar.gz")
+          add("darwin-x86_64", "built/Photo Editor for Mac/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig", "Photo-Editor-Mac-Intel.app.tar.gz")
+          if platforms:
+              json.dump({"version": os.environ["APP_VERSION"], "notes": "", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}, open("out/latest.json", "w"), indent=1)
+              print("latest.json for", ", ".join(platforms))
+          else:
+              print("No signed updates in this build, so no latest.json")
+          PY
+      - name: Replace the newest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete newest --cleanup-tag --yes || true
+          gh release create newest out/* --target "$GITHUB_SHA" --title "Photo Editor (newest build)" --latest \
+            --notes "Windows: download Photo-Editor-Windows-Setup.exe. Mac with an M chip: download Photo-Editor-Mac-Apple-Silicon.dmg. Older Intel Mac: download Photo-Editor-Mac-Intel.dmg."

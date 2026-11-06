@@ -899,3 +899,12 @@ table.keys th { text-align: left; font-weight: 600; padding: 12px 4px 4px; font-
 .studio-person.on { opacity: 1; border-color: var(--gold); }
 @media (max-width: 860px) { .studio-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } .studio-panel { max-height: 40vh; } }
 .touch-row { margin-bottom: 8px; }
+
+/* Floating windows: no backdrop, page stays usable, drag by the title */
+.modal-back.float { background: none; pointer-events: none; place-items: start end; padding: 90px 340px 0 0; }
+.modal-back.float .modal { pointer-events: auto; box-shadow: 0 18px 50px rgba(16, 28, 43, 0.28); max-height: calc(100vh - 120px); }
+.modal-back.float .modal-head { cursor: move; user-select: none; touch-action: none; }
+@media (max-width: 1100px) { .modal-back.float { padding: 70px 16px 0 0; } }
+.update-badge { margin-right: 8px; padding: 6px 12px; border: 1px solid var(--gold); border-radius: 999px; background: none; color: var(--gold); font-weight: 600; font-size: 12px; cursor: pointer; }
+.update-badge:hover { background: rgba(224, 180, 90, 0.12); }
+.update-badge[hidden] { display: none; }

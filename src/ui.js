@@ -22,7 +22,12 @@ export function h(tag, attrs = {}, ...children) {
  * Shows a dialog. `buttons` is [{ label, value, primary }]. Resolves with the
  * clicked button's value, or null on Escape / close.
  */
-export function modal(title, body, buttons = [{ label: 'OK', value: true, primary: true }], { wide = false } = {}) {
+/**
+ * A window with buttons. float: no dark backdrop, the page behind stays
+ * usable, and the window can be dragged by its title so it never hides what
+ * it changes.
+ */
+export function modal(title, body, buttons = [{ label: 'OK', value: true, primary: true }], { wide = false, float = false } = {}) {
   return new Promise((resolve) => {
     const close = (v) => {
       document.removeEventListener('keydown', key, true);
@@ -45,11 +50,11 @@ export function modal(title, body, buttons = [{ label: 'OK', value: true, primar
     };
     const back = h(
       'div',
-      { class: 'modal-back', onmousedown: (e) => e.target === back && close(null) },
+      { class: 'modal-back' + (float ? ' float' : ''), onmousedown: (e) => e.target === back && !float && close(null) },
       h(
         'div',
         { class: 'modal' + (wide ? ' wide' : '') },
-        h('div', { class: 'modal-head' }, h('h2', {}, title), h('button', { class: 'icon-btn', title: 'Close', onclick: () => close(null), html: ICONS.close })),
+        h('div', { class: 'modal-head', onpointerdown: float ? dragWindow : null, title: float ? 'Drag to move' : null }, h('h2', {}, title), h('button', { class: 'icon-btn', title: 'Close', onclick: () => close(null), html: ICONS.close })),
         h('div', { class: 'modal-body' }, body),
         h(
           'div',
@@ -64,6 +69,29 @@ export function modal(title, body, buttons = [{ label: 'OK', value: true, primar
     document.addEventListener('keydown', key, true);
     setTimeout(() => back.querySelector('input, select, .btn.primary')?.focus(), 0);
   });
+}
+
+/** Drags a floating window by its title bar, keeping it on screen. */
+function dragWindow(e) {
+  if (e.target.closest('button')) return;
+  const win = e.currentTarget.parentElement;
+  const r = win.getBoundingClientRect();
+  const dx = e.clientX - r.left;
+  const dy = e.clientY - r.top;
+  win.style.position = 'fixed';
+  win.style.margin = '0';
+  const move = (ev) => {
+    win.style.left = `${Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx))}px`;
+    win.style.top = `${Math.max(0, Math.min(window.innerHeight - 40, ev.clientY - dy))}px`;
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  move(e);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  e.preventDefault();
 }
 
 export function prompt(title, label, value = '') {
