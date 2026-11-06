@@ -26,7 +26,7 @@ function smallCopy(img) {
 }
 
 /** A square crop of one face for the People row. */
-function faceThumb(src, f, size = 56) {
+export function faceThumb(src, f, size = 56) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const side = Math.max(f.box.w, f.box.h) * 1.5;

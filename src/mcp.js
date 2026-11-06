@@ -636,6 +636,7 @@ const TOOLS = {
     if (id) {
       const o = layer(id);
       if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Touch up works on photos.`);
+      if (args.people !== undefined) opts.subjects = await peopleToSubjects(o, args.people);
       if (side_by_side && pagePhotos().length === 1) {
         if (state.dirty && !discard_changes) fail('The open design has unsaved changes. Save it with save_design first, or call again with discard_changes true, or pass side_by_side false to touch up this photo where it is.');
         r = await makeTouchUpPair({ photo: { url: o.beautyBase || o.getSrc(), name: o.sourceName || o.name || 'Photo' }, ...opts, ...pairOptions(args), layout, labels, name });

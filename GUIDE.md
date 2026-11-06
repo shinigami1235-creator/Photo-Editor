@@ -325,6 +325,8 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
 
   It can't fix a different camera angle, such as the body turned more in one photo or shot from higher up, so take both from the same spot, height and pose. The message after says what it lined up by, or that it found nothing to match in both and centred them.
 - **Touch up:** for right after a session, when the result can't be seen yet. Select a photo and press Touch up at the top of Properties (it's also in the Image menu, and with nothing selected it's under the page settings). Pick the touch ups (Slim face, Slim body, Smooth skin, Glow up) and the Amount, then Apply. The photo gets a Simulated goal tag in its top corner.
+  - With two or more people in the photo, People shows each face, numbered from the left. Click a face to leave that person out, and only the ones still lit get the touch up.
+  - Amount stays gentle on purpose, so on a group photo where faces are small it can be hard to see. For a stronger change, or for your own photos, use Retouch studio, which has no cap.
   - The window doesn't darken or block the design. Drag it by its title to wherever the photo is in view, and the photo changes as you move Amount or tick a touch up. Cancel puts the photo back the way it was. The Before and after window works the same way.
   - With two or more photos on the page, pick which one under Photo. Only that one changes.
   - With one photo, tick Keep the original beside it to get the untouched photo next to the touched-up copy as a new design, with Today and Goal labels. Face touch ups zoom in on the face and body ones show the whole photo.
