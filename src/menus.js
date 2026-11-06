@@ -50,6 +50,7 @@ export const MENUS = ({ savedSelections }) => [
       'image.behind',
       '-',
       'image.touchUp',
+      'image.studio',
       { label: 'Quick fixes', items: ['image.fix.glow', 'image.fix.smooth', 'image.fix.slimFace', 'image.fix.slimBody', 'image.fix.enhance', 'image.fix.eyes', 'image.fix.teeth', '-', 'image.fix.off'] },
       'image.retouch',
       'image.up2',

@@ -23,6 +23,7 @@ import { upscalePhoto, upscaleLimit } from './upscale.js';
 import { toast } from './ui.js';
 import { quickFix, activeFixes, settingsFor, renderLook } from './quickfix.js';
 import { detectFaces } from './faces.js';
+import { pickPeople, subjectOf } from './beauty.js';
 import { makeBeforeAfter, makeTouchUpPair, touchUpLayer, pagePhotos, LAYOUTS, GOAL_MAX } from './beforeafter.js';
 import { defaults } from './defaults.js';
 import { updateBadge, setLabelOpacity, setLabelSize, setBadgeSize, pageLabels } from './badge.js';
@@ -496,12 +497,12 @@ const TOOLS = {
     return { text: `Saved ${p}.` };
   },
 
-  async retouch({ id, fixes = [], on = true, amounts }) {
+  async retouch({ id, fixes = [], on = true, amounts, people }) {
     const o = layer(id);
     if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Quick fixes work on photos.`);
     const ids = fixIds(fixes);
     say(`quick fixes: ${ids.join(', ') || 'amounts'}`);
-    const r = await quickFix(o, ids, { on, amounts });
+    const r = await quickFix(o, ids, { on, amounts, subjects: people === undefined ? undefined : await peopleToSubjects(o, people) });
     return { text: JSON.stringify({ message: r.message, faces: r.faces, amounts: r.settings, on: activeFixes(o) }) };
   },
 
@@ -509,11 +510,13 @@ const TOOLS = {
     const o = layer(id);
     if (!isPhoto(o)) fail(`"${o.name}" is a ${kindOf(o)}. Faces are found in photos.`);
     const src = o.beautyBase || o.getSrc();
-    const faces = await detectFaces(await loadImage(src), { key: src });
+    const img = await loadImage(src);
+    const faces = (await detectFaces(img, { key: src })).slice().sort((a, b) => a.box.x - b.box.x);
+    const chosen = pickPeople(faces, o.beauty?.subjects || null, img.naturalWidth, img.naturalHeight);
     return {
       text: JSON.stringify({
-        faces: faces.map((f) => ({ x: Math.round(f.box.x), y: Math.round(f.box.y), width: Math.round(f.box.w), height: Math.round(f.box.h), eye_distance: Math.round(f.parts.eyeDist), tilt_degrees: round((f.parts.angle * 180) / Math.PI), score: round(f.score) })),
-        note: 'Positions are in the photo\'s own pixels.',
+        faces: faces.map((f, i) => ({ person: i + 1, retouched: chosen.includes(f), x: Math.round(f.box.x), y: Math.round(f.box.y), width: Math.round(f.box.w), height: Math.round(f.box.h), eye_distance: Math.round(f.parts.eyeDist), tilt_degrees: round((f.parts.angle * 180) / Math.PI), score: round(f.score) })),
+        note: 'People are numbered from the left, as retouch people expects. Positions are in the photo\'s own pixels.',
       }),
     };
   },
@@ -648,7 +651,7 @@ const TOOLS = {
       }
     }
     say('touched up');
-    return { text: JSON.stringify({ design: state.doc.name, ...r, note: 'The touched-up photo carries a Simulated goal tag. Keep it on whenever the picture is shown. Fine tune with retouch on the photo layer and amounts, and move or resize the tag and labels with set_layer and set_labels.', layers: layersJson() }) };
+    return { text: JSON.stringify({ design: state.doc.name, ...r, note: `${opts.showTag ? 'The touched-up photo carries a Simulated goal tag. Keep it on whenever the picture is shown. ' : 'No Simulated goal tag was added. '}Fine tune with retouch on the photo layer and amounts, and move or resize the tag and labels with set_layer and set_labels.`, layers: layersJson() }) };
   },
 
   async batch_touch_up(args) {
@@ -764,6 +767,7 @@ function touchOptions(a) {
     tag: a.tag_text || T.text,
     tagColors: { fill: a.tag_box_color || T.fill, color: a.tag_color || T.color },
     tagSize: pct(a.tag_size, 'tag_size', 30, 150) ?? T.size,
+    showTag: a.tag ?? T.show,
   };
 }
 
@@ -781,6 +785,18 @@ const fixIds = (fixes = []) => fixes.map((f) => FIX_ALIAS[String(f).toLowerCase(
 
 async function loadPath(path) {
   return { name: baseName(path), url: await host.pictureUrl(baseName(path), await readFileAt(path)) };
+}
+
+/** retouch people: 1-based numbers from the left, or "all", as subject entries. */
+async function peopleToSubjects(o, people) {
+  if (people === 'all' || people === null || (Array.isArray(people) && !people.length)) return null;
+  const list = Array.isArray(people) ? people : [people];
+  const src = o.beautyBase || o.getSrc();
+  const img = await loadImage(src);
+  const faces = (await detectFaces(img, { key: src })).slice().sort((a, b) => a.box.x - b.box.x);
+  if (!faces.length) fail('No faces found in this photo, so people can\'t be picked. Leave people out to work on the whole photo.');
+  for (const n of list) if (!(Number.isInteger(+n) && n >= 1 && n <= faces.length)) fail(`people are numbers from 1 to ${faces.length}, counted from the left. Call detect_faces to see them.`);
+  return list.map((n) => subjectOf(faces[n - 1], img.naturalWidth, img.naturalHeight));
 }
 
 async function pairDesign({ before, after, layout, labels, align_faces, name, labelColors, labelOpacity, labelSize }) {

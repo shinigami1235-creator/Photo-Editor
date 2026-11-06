@@ -173,7 +173,14 @@ Select a photo and the Quick fixes buttons sit at the top of Properties. Click o
 - **Bright eyes:** lifts and sharpens the eyes only.
 - **Whiten teeth:** takes the yellow out of the teeth only.
 
-The same buttons are under Image > Quick fixes. A gold button means that fix is on. While one runs, the button shimmers and the rest wait.
+The same buttons are under Image > Quick fixes.
+
+**Retouch studio** is the big window for getting a photo just right. Select the photo and press Retouch studio, next to Touch up in Properties, or use Image > Retouch studio.
+- The preview fills most of the window and updates as you move a slider. Press and hold the photo to see the original.
+- There's a slider for each fix, a switch for Glow up's light and colour, Glow up to set all of them at once, and Clear all.
+- With two or more people in the photo, the People row shows each face. Click faces to pick who gets the fixes, and the rest stay untouched. Slim body then only works inside each picked person's part of the photo.
+- View: People zooms the preview in on the picked people.
+- Apply puts the settings on the full photo, where they stay editable. Save as default makes the Quick fixes buttons use these amounts. A gold button means that fix is on. While one runs, the button shimmers and the rest wait.
 
 Fine tune opens a slider for each fix, 0 to 100, for when the one-click amount is too much or too little. Take all off puts the photo back to how it came in. Nothing is baked in: the fixes stay editable after you save and reopen the design.
 
@@ -309,6 +316,7 @@ Every colour setting in Properties has a pipette too. Click it, then click anywh
   - With two or more photos on the page, pick which one under Photo. Only that one changes.
   - With one photo, tick Keep the original beside it to get the untouched photo next to the touched-up copy as a new design, with Today and Goal labels. Face touch ups zoom in on the face and body ones show the whole photo.
   - With nothing open, it asks for a picture.
+  - Untick Simulated goal tag to leave the tag off, for your own personal photos. Keep it on for patients, since without it a touched-up photo passes for a real result.
   - Amount starts at 40, and even 100 stays within what a program can reach, so the patient still looks like themselves. Select the photo afterwards and Fine tune under Quick fixes adjusts each fix on its own.
 - **Labels and the tag:** each is a layer you can drag anywhere, so move it off anything you want the patient to see. Select one to change its words, box colour and word colour in Properties, or press Delete to remove it. Label opacity sets how strong Before/After or Today/Goal show, from 0 (hidden) to 100, and starts at 0. Label size and Tag size shrink them when the photo is zoomed in and they'd cover something worth showing. After the design is made, select any label and use All labels opacity and All labels size to change them all together, or select the tag for its own Size. With nothing selected, the label sliders are under Labels in Properties. Untick Show labels to leave them out altogether. The Simulated goal tag has its own Opacity in Properties. It's what keeps a touched-up picture honest when it gets forwarded, so move or recolour it rather than deleting it.
 - **Save as default:** the Touch up and Before and after windows, the labels and tag in Properties, and Fine tune under Quick fixes each have a Save as default button. It keeps what you set (touch ups, amount, layout, labels, colours, opacity, sizes, and the amount each Quick fixes button applies), so every new file and every batch Claude runs starts from there.

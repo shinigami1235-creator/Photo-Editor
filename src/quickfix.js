@@ -87,7 +87,7 @@ export function activeFixes(o) {
  * or 'toggle'; `amounts` sets exact values (0 to 100) by fix id. Returns a
  * message for the status bar.
  */
-export async function quickFix(o, ids = [], { on = 'toggle', amounts = null, quiet = false } = {}) {
+export async function quickFix(o, ids = [], { on = 'toggle', amounts = null, subjects, quiet = false } = {}) {
   if (!isPhoto(o)) throw new Error('Quick fixes work on photos.');
   if (busy) throw new Error('A quick fix is still running.');
   const s = current(o);
@@ -105,6 +105,7 @@ export async function quickFix(o, ids = [], { on = 'toggle', amounts = null, qui
       if (!(k in NONE)) throw new Error(`Unknown amount ${k}. Amounts: ${Object.keys(NONE).join(', ')}.`);
       s[k] = Math.max(0, Math.min(100, +v || 0));
     }
+  if (subjects !== undefined) s.subjects = subjects;
   busy = true;
   changed();
   const note = quiet ? null : toast('Working', { sticky: true });
@@ -202,7 +203,12 @@ export function quickPanel(o, rerender) {
   );
   return section(
     'Quick fixes',
-    h('button', { class: 'btn primary wide touch-btn', disabled: busy, title: 'Touch up this photo, or put a touched-up copy beside it', onclick: () => runCommand('image.touchUp') }, 'Touch up'),
+    h(
+      'div',
+      { class: 'row touch-row' },
+      h('button', { class: 'btn primary grow', disabled: busy, title: 'Touch up this photo, or put a touched-up copy beside it', onclick: () => runCommand('image.touchUp') }, 'Touch up'),
+      h('button', { class: 'btn grow', disabled: busy, title: 'A big window with a live preview, a slider for every fix and a choice of people', onclick: () => runCommand('image.studio') }, 'Retouch studio'),
+    ),
     h('div', { class: 'fix-grid' }, ['glow', 'smooth', 'slimFace', 'slimBody', 'enhance', 'eyes', 'teeth'].map(chip)),
     h(
       'button',

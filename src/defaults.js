@@ -10,7 +10,7 @@ export const FACTORY = {
   touchUp: { fixes: ['slimFace'], amount: 40, sideBySide: true, layout: 'side', labels: ['Today', 'Goal'] },
   beforeAfter: { layout: 'side', labels: ['Before', 'After'], align: 'auto' },
   labels: { show: true, opacity: 0, size: 100, fill: '#101c2b', color: '#ffffff' },
-  tag: { text: 'Simulated goal', size: 100, fill: '#e0b45a', color: '#101c2b' },
+  tag: { show: true, text: 'Simulated goal', size: 100, fill: '#e0b45a', color: '#101c2b' },
   // Amounts the Quick fixes buttons apply, by amount name (smooth, slimFace...).
   quickFix: {},
 };

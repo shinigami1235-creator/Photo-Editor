@@ -68,6 +68,7 @@ Shape combining uses polygon-clipping (MIT).
 | `src/faces.js` | Face finding, the 68 points, straightening to 512 and pasting back |
 | `src/beauty.js` | Smooth skin, Slim face, Slim body, Bright eyes, Whiten teeth and Enhance faces, kept editable on each photo |
 | `src/face-worker.js` | Runs RestoreFormer++ off the main thread |
+| `src/studio.js` | Retouch studio: live preview, sliders, picking people |
 | `src/quickfix.js` | Quick fixes buttons, Fine tune sliders, Glow up's light and colour, the Image > Quick fixes commands |
 | `src/beforeafter.js` | Before and after from two photos with the faces lined up, and Touch up |
 | `src/psd.js` | Opening Photoshop files as layers |

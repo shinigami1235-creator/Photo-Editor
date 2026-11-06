@@ -881,3 +881,21 @@ table.keys th { text-align: left; font-weight: 600; padding: 12px 4px 4px; font-
 .touch-btn { margin-bottom: 8px; font-weight: 600; }
 .ba-save { align-self: flex-start; }
 .ba-pair[hidden] { display: none; }
+
+/* Retouch studio */
+.studio { background: var(--panel); border-radius: 14px; width: min(1280px, 94vw); height: min(860px, 92vh); display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+.studio-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); gap: 16px; padding: 8px 20px 0; }
+.studio-stage { position: relative; min-height: 0; display: grid; place-items: center; background: #1b232e; border-radius: 10px; overflow: hidden; cursor: pointer; user-select: none; touch-action: none; }
+.studio-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.studio-badge { position: absolute; top: 12px; left: 12px; padding: 5px 12px; border-radius: 999px; background: rgba(16, 28, 43, 0.82); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: 0.03em; }
+.studio-hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); color: rgba(255, 255, 255, 0.75); font-size: 12px; pointer-events: none; }
+.studio-panel { overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-bottom: 8px; }
+.studio-section { display: flex; flex-direction: column; gap: 8px; }
+.studio-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.studio-people { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-person { position: relative; padding: 0; border: 2px solid var(--line-2); border-radius: 10px; overflow: hidden; background: none; cursor: pointer; opacity: 0.45; }
+.studio-person canvas { display: block; width: 56px; height: 56px; }
+.studio-person span { position: absolute; bottom: 2px; right: 4px; color: #fff; font-size: 11px; font-weight: 700; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.studio-person.on { opacity: 1; border-color: var(--gold); }
+@media (max-width: 860px) { .studio-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } .studio-panel { max-height: 40vh; } }
+.touch-row { margin-bottom: 8px; }

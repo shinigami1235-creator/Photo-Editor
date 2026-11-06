@@ -221,9 +221,9 @@ function labelLook({ labelColors, labelOpacity, labelSize }) {
   return { labelColors: labelColors || { fill: L.fill, color: L.color }, labelOpacity: labelOpacity ?? L.opacity, labelSize: labelSize ?? L.size };
 }
 
-function tagLook({ tag, tagColors, tagSize }) {
+function tagLook({ tag, tagColors, tagSize, showTag }) {
   const T = defaults('tag');
-  return { tag: tag || T.text, tagColors: tagColors || { fill: T.fill, color: T.color }, tagSize: tagSize ?? T.size };
+  return { tag: tag || T.text, tagColors: tagColors || { fill: T.fill, color: T.color }, tagSize: tagSize ?? T.size, showTag: showTag ?? T.show };
 }
 
 const finish = () => {
@@ -305,14 +305,14 @@ function visibleBox(o) {
  * Touches up a photo already on the page. The fixes stay live for Fine tune,
  * and the Simulated goal tag goes on the photo unless it already has one.
  */
-export async function touchUpLayer(o, { fixes, amount, amounts = null, tag, tagColors, tagSize } = {}) {
+export async function touchUpLayer(o, { fixes, amount, amounts = null, tag, tagColors, tagSize, showTag } = {}) {
   const { quickFix } = await import('./quickfix.js');
   const D = defaults('touchUp');
   fixes = fixes || D.fixes;
   const settings = { ...goalAmounts(fixes, amount ?? D.amount), ...(amounts || {}) };
-  ({ tag, tagColors, tagSize } = tagLook({ tag, tagColors, tagSize }));
+  ({ tag, tagColors, tagSize, showTag } = tagLook({ tag, tagColors, tagSize, showTag }));
   const r = await quickFix(o, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
-  if (!canvas.getObjects().some((t) => t.badge?.kind === 'tag' && t.badge.photo === o.uid)) canvas.add(simTag(visibleBox(o), tag, tagColors, tagSize, o.uid));
+  if (showTag && !canvas.getObjects().some((t) => t.badge?.kind === 'tag' && t.badge.photo === o.uid)) canvas.add(simTag(visibleBox(o), tag, tagColors, tagSize, o.uid));
   finish();
   return { faces: r.faces, fixes, amounts: settings, layer: o.uid };
 }
@@ -322,14 +322,14 @@ export async function touchUpLayer(o, { fixes, amount, amounts = null, tag, tagC
  * as a new design. photo is { url, name }; fixes are slimFace, slimBody,
  * smooth and glow; amount is 0 to 100 on the goal scale.
  */
-export async function makeTouchUpPair({ photo, fixes, amount, amounts = null, layout, labels, labelColors, labelOpacity, labelSize, tag, tagColors, tagSize, name, gap = 8, background = '#ffffff' }) {
+export async function makeTouchUpPair({ photo, fixes, amount, amounts = null, layout, labels, labelColors, labelOpacity, labelSize, tag, tagColors, tagSize, showTag, name, gap = 8, background = '#ffffff' }) {
   const { quickFix } = await import('./quickfix.js');
   const D = defaults('touchUp');
   fixes = fixes || D.fixes;
   layout = layout || D.layout;
   labels = labels || D.labels;
   ({ labelColors, labelOpacity, labelSize } = labelLook({ labelColors, labelOpacity, labelSize }));
-  ({ tag, tagColors, tagSize } = tagLook({ tag, tagColors, tagSize }));
+  ({ tag, tagColors, tagSize, showTag } = tagLook({ tag, tagColors, tagSize, showTag }));
   const settings = { ...goalAmounts(fixes, amount ?? D.amount), ...(amounts || {}) };
   const img = await loadImage(photo.url);
   // A body goal shows the whole photo, since zooming to the face hides the body.
@@ -337,7 +337,7 @@ export async function makeTouchUpPair({ photo, fixes, amount, amounts = null, la
   const r = await compose({ bImg: img, aImg: img, bFaces: faces, aFaces: faces, align: !fixes.includes('slimBody'), level: false, names: { files: [photo.name, photo.name], photoNames: ['Original', 'Touched up'] }, layout, labels, labelColors, labelOpacity, labelSize, name: name || `${photo.name.replace(/\.[^.]+$/, '')} touch up`, gap, background });
   const goal = r.photos[1];
   await quickFix(goal, fixes.includes('glow') ? ['glow'] : [], { on: true, amounts: settings, quiet: true });
-  canvas.add(simTag(r.cells[1], tag, tagColors, tagSize, goal.uid));
+  if (showTag) canvas.add(simTag(r.cells[1], tag, tagColors, tagSize, goal.uid));
   finish();
   return { faces: faces.length, fixes, amounts: settings, goal_layer: goal.uid, layout, size: r.size };
 }
@@ -367,11 +367,12 @@ function startState(kind) {
     tagColors: { fill: T.fill, color: T.color },
     tagSize: T.size,
     tagText: T.text,
+    showTag: T.show,
   };
 }
 
 const saveLabels = (S) => saveDefaults('labels', { show: S.showLabels, opacity: S.labelOpacity, size: S.labelSize, ...S.labelColors });
-const saveTag = (S) => saveDefaults('tag', { size: S.tagSize, ...S.tagColors });
+const saveTag = (S) => saveDefaults('tag', { show: S.showTag, size: S.tagSize, ...S.tagColors });
 
 async function parts() {
   const ui = await import('./ui.js');
@@ -492,6 +493,7 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
       h('button', { class: 'fix-chip' + (S.fixes.has(id) ? ' on' : ''), onclick: (e) => (S.fixes.has(id) ? S.fixes.delete(id) : S.fixes.add(id), e.currentTarget.classList.toggle('on', S.fixes.has(id))) }, PRESETS[id].label),
     ),
   );
+  const tagBits = h('div', { class: 'stack gap ba-pair', hidden: !S.showTag }, colorRow('Tag', S.tagColors), rangeField('Tag size', S.tagSize, (v) => (S.tagSize = v), { min: 30, max: 150, suffix: '%' }));
   const pairBits = h('div', { class: 'stack gap ba-pair' }, h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Layout'), layoutSeg(S)), labelsRow(S));
   const sideBySide = () => !photos.length || (photos.length === 1 && S.sideBySide);
   const sync = () => (pairBits.hidden = !sideBySide());
@@ -514,9 +516,9 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
     h('div', { class: 'field-row' }, h('span', { class: 'label' }, 'Touch up'), chips),
     rangeField('Amount', S.amount, (v) => (S.amount = v), { min: 0, max: 100 }),
     pairBits,
-    colorRow('Tag', S.tagColors),
-    rangeField('Tag size', S.tagSize, (v) => (S.tagSize = v), { min: 30, max: 150, suffix: '%' }),
-    h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the photo afterwards to fine tune each fix. The Simulated goal tag and the labels are layers you can drag anywhere.'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.showTag, onchange: (e) => ((S.showTag = e.target.checked), (tagBits.hidden = !S.showTag)) }), 'Simulated goal tag'),
+    tagBits,
+    h('p', { class: 'muted small' }, 'Even 100 stays within what a program can reach. Select the photo afterwards to fine tune each fix. The tag and the labels are layers you can drag anywhere. Keep the tag on for patient photos, since without it a touched-up photo passes for a real result.'),
     saveButton(async () => {
       await saveDefaults('touchUp', { fixes: [...S.fixes], amount: S.amount, sideBySide: S.sideBySide, layout: S.layout, labels: S.labels });
       await saveLabels(S);
@@ -529,7 +531,7 @@ export async function touchUpDialog({ pickPhoto, confirmDiscard, target = null }
   ]);
   if (!ok) return;
   if (!S.fixes.size) return toast('Pick at least one touch up.', { error: true });
-  const opts = { fixes: [...S.fixes], amount: S.amount, tagColors: S.tagColors, tagSize: S.tagSize };
+  const opts = { fixes: [...S.fixes], amount: S.amount, tagColors: S.tagColors, tagSize: S.tagSize, showTag: S.showTag };
   const pair = { layout: S.layout, labels: S.showLabels ? S.labels : [], labelColors: S.labelColors, labelOpacity: S.labelOpacity, labelSize: S.labelSize };
   let photo = S.photo;
   if (!photos.length && !photo) return toast('Pick the patient photo.', { error: true });

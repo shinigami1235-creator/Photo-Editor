@@ -1215,6 +1215,16 @@ function defineCoreCommands() {
         }),
       also: 'collage compare result',
     },
+    'image.studio': {
+      label: 'Retouch studio',
+      run: async () => {
+        const { openStudio } = await import('./studio.js');
+        await openStudio(photo());
+        renderProps();
+      },
+      enabled: () => !!photo(),
+      also: 'slim smooth enhance people preview fine tune',
+    },
     'image.touchUp': {
       label: 'Touch up',
       run: () =>

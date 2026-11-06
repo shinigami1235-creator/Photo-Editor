@@ -450,9 +450,18 @@ async function personMask(source, key, say) {
  * measured per row and then smoothed up and down the photo, so the warp
  * changes gradually and arms or legs leaving the outline never tear.
  */
-function slimBody(out, mask, faces, t) {
+function slimBody(out, mask, faces, t, strip = null) {
   const W = out.width;
   const H = out.height;
+  if (strip) {
+    // Only this person's strip of the photo: the mask outside it is cleared
+    // so the body found is theirs, and the warp fades out before its edges.
+    const a = new Float32Array(mask.a);
+    const l = Math.floor((strip[0] / W) * mask.w);
+    const r = Math.ceil((strip[1] / W) * mask.w);
+    for (let y = 0; y < mask.h; y++) for (let x = 0; x < mask.w; x++) if (x < l || x > r) a[y * mask.w + x] = 0;
+    mask = { ...mask, a };
+  }
   const sy = mask.h / H;
   const sx = W / mask.w;
   const extent = (my) => {
@@ -511,12 +520,16 @@ function slimBody(out, mask, faces, t) {
     if (s < 0.002 || w < 2) continue;
     const base = (y - y0) * W * 4;
     row.set(img.data.subarray(base, base + W * 4));
-    const xa = Math.max(0, Math.floor(c - w * REACH));
-    const xb = Math.min(W - 1, Math.ceil(c + w * REACH));
+    const lo = strip ? strip[0] : 0;
+    const hi = strip ? strip[1] : W - 1;
+    const tw = (hi - lo) * 0.12;
+    const xa = Math.max(lo, Math.floor(c - w * REACH));
+    const xb = Math.min(hi, Math.ceil(c + w * REACH));
     for (let x = xa; x <= xb; x++) {
       const v = x - c;
       const q = Math.abs(v) / w;
-      const f = q <= 1 ? q : 1 - smoothstep(1, REACH, q);
+      let f = q <= 1 ? q : 1 - smoothstep(1, REACH, q);
+      if (strip) f *= Math.min(smoothstep(lo, lo + tw, x), 1 - smoothstep(hi - tw, hi, x));
       const src = Math.min(W - 1.001, Math.max(0, x + Math.sign(v) * s * w * f));
       const x0 = src | 0;
       const fx = src - x0;
@@ -526,6 +539,36 @@ function slimBody(out, mask, faces, t) {
   }
   ctx.putImageData(img, 0, y0);
   return true;
+}
+
+// ---------- People ----------
+
+const centre = (f) => [f.box.x + f.box.w / 2, f.box.y + f.box.h / 2];
+
+/**
+ * The faces to work on. `subjects` is null for everyone, or a list of face
+ * centres as fractions of the photo's width and height, so the choice still
+ * fits after the photo is resized or detected again.
+ */
+export function pickPeople(faces, subjects, w, h) {
+  if (!subjects) return faces;
+  return faces.filter((f) => {
+    const [x, y] = centre(f);
+    return subjects.some(([sx, sy]) => Math.hypot(x / w - sx, y / h - sy) < Math.max(0.04, (f.box.w / w) * 0.6));
+  });
+}
+
+/** Where a face is, as a subject entry. */
+export const subjectOf = (f, w, h) => [+(centre(f)[0] / w).toFixed(4), +(centre(f)[1] / h).toFixed(4)];
+
+/** The strip of the photo that belongs to one person: halfway to the faces either side. */
+function personStrip(f, all, W) {
+  const x = centre(f)[0];
+  const xs = all.map((g) => centre(g)[0]).sort((a, b) => a - b);
+  const i = xs.findIndex((v) => Math.abs(v - x) < 1);
+  const lo = i > 0 ? (xs[i - 1] + x) / 2 : 0;
+  const hi = i < xs.length - 1 ? (xs[i + 1] + x) / 2 : W - 1;
+  return [Math.max(0, Math.floor(lo)), Math.min(W - 1, Math.ceil(hi))];
 }
 
 // ---------- Rendering ----------
@@ -544,14 +587,19 @@ export async function renderFixes(source, settings, { key, say } = {}) {
   const s = { ...NONE, ...settings };
   const needFaces = FACE_FIXES.some((k) => s[k] > 0) || s.slimBody > 0;
   say?.('Finding faces');
-  const faces = needFaces ? await detectFaces(source, { key }) : [];
+  const all = needFaces ? await detectFaces(source, { key }) : [];
+  const faces = pickPeople(all, s.subjects, w, h);
   if (s.enhance > 0 && faces.length) await enhanceFaces(out, source, faces, s.enhance / 100, say);
   if (s.smooth > 0) smoothSkin(out, faces, s.smooth / 100);
   if (s.eyes > 0) brightEyes(out, faces, s.eyes / 100);
   if (s.teeth > 0) whitenTeeth(out, faces, s.teeth / 100);
   if (s.slimFace > 0) slimFace(out, faces, s.slimFace / 100);
   let body = false;
-  if (s.slimBody > 0) body = slimBody(out, await personMask(source, key || source.src, say), faces, s.slimBody / 100);
+  if (s.slimBody > 0) {
+    const mask = await personMask(source, key || source.src, say);
+    if (!s.subjects || all.length < 2) body = slimBody(out, mask, faces, s.slimBody / 100);
+    else for (const f of faces) body = slimBody(out, mask, [f], s.slimBody / 100, personStrip(f, all, w)) || body;
+  }
   return { canvas: out, faces: faces.length, body };
 }
 
@@ -571,7 +619,7 @@ export async function applyFixes(obj, settings, { say } = {}) {
   const blob = await new Promise((res) => r.canvas.toBlob(res, 'image/png'));
   await swap(obj, registerBlob(blob));
   obj.beautyBase = base;
-  obj.beauty = { ...NONE, ...settings };
+  obj.beauty = { ...NONE, ...settings, subjects: settings.subjects || null };
   return r;
 }
 
